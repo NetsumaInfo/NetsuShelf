@@ -345,7 +345,7 @@ class EpubPacker {
             file.packInEpub(zipWriter, this.emptyDocFactory, this.contentValidator);
         }
         if (epubItemSupplier.hasCoverImageFile()) {
-            let fileContent = epubItemSupplier.makeCoverImageXhtmlFile(this.emptyDocFactory);
+            let fileContent = epubItemSupplier.makeCoverImageXhtmlFile(this.emptyDocFactory, "Cover");
             zipWriter.add(EpubPacker.coverImageXhtmlHref(), new zip.TextReader(fileContent));
         }
     }

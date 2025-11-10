@@ -47,7 +47,10 @@ class NovelsOnlineParser extends Parser {
         if (detailOptionEls) {
             for (const el of detailOptionEls) {
                 if (el.textContent.includes("Author(s)")) {
-                    return el.textContent.replace("Author(s)", "").trim();
+                    const author = el.textContent.replace("Author(s)", "").trim();
+                    if (author != "" && author != "N/A") {
+                        return author;
+                    }
                 }
             }
         }

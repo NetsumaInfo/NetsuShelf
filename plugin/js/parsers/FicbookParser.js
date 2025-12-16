@@ -37,7 +37,9 @@ class FicbookParser extends Parser {
         return dom.querySelector("#content");
     }
     customRawDomToContentStep(chapter, content) {
-        content.innerHTML = content.innerText.split("\n\n").map(x=>"<p>" + x + "</p>").join("");
+        let paragraphed_text = content.innerText.split("\n\n").map(x=>"<p>" + x + "</p>").join("");
+        let sanitized_text = util.sanitize(paragraphed_text).body.innerHTML;
+        content.innerHTML = sanitized_text;
     }
 
     extractTitleImpl(dom) {

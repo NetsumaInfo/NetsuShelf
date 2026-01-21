@@ -32,9 +32,15 @@ const util = (function() {
         }
         else
         {
-            // this only works as long as firefox hasn't implemented this 
-            // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/PlatformNaclArch
-            return (typeof (browser.runtime.PlatformNaclArch) == "undefined");
+            if ((typeof (browser) !== "undefined")) {
+                // it could be chrome version 144+ or firefox                
+                // this only works as long as firefox hasn't implemented this 
+                // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/PlatformNaclArch
+                return (typeof (browser?.runtime?.PlatformNaclArch) == "undefined");
+            } else {
+                //old chrome version (not firefox)
+                return false;
+            }
         }
     }
 

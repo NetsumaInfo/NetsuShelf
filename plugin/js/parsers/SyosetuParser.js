@@ -55,7 +55,15 @@ class SyosetuParser extends Parser {
     }
 
     findContent(dom) {
-        return dom.querySelector("div.p-novel__body");
+        return dom.querySelector("div.p-novel__text");
+    }
+
+    preprocessRawDom(dom) {
+        let notes = dom.querySelector(".p-novel__text--afterword");
+        if ((notes != null) && !this.userPreferences.removeAuthorNotes.value) {
+            this.tagAuthorNotes([notes]);
+            this.findContent(dom).appendChild(notes);
+        }
     }
 
     extractTitleImpl(dom) {

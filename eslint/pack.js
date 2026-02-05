@@ -44,7 +44,7 @@ var readFilePromise = function(fileName) {
 var writeFilePromise = function(fileName, buffer) {
     return new Promise(function(resolve, reject) {
         console.log("writing file: " + fileName);
-        fs.writeFile(fileName, new Buffer(buffer), function(err) {    
+        fs.writeFile(fileName, Buffer.from(buffer), function(err) {    
             if (err) { 
                 reject(err); 
             } else {

@@ -94,44 +94,111 @@ class PatreonParser extends Parser {
         else if (json.content_json_string)
         {
             const tiptapToHtml = (node) => {
-                if (!node) return "";
+                if (!node) return null;
 
-                // 1. Handle Text Nodes with Marks (Bold, Italic)
+                // 1. Handle Text Nodes (Returns a Text Node or Span)
                 if (node.type === "text") {
-                    let text = node.text;
+                    let root;
                     if (node.marks) {
+                        // If there are marks, we build them nested
+                        root = document.createElement("span");
+                        let current = root;
                         node.marks.forEach(mark => {
-                            if (mark.type === "bold") text = `<strong>${text}</strong>`;
-                            if (mark.type === "italic") text = `<em>${text}</em>`;
+                            let wrapper;
+                            if (mark.type === "bold") wrapper = document.createElement("strong");
+                            if (mark.type === "italic") wrapper = document.createElement("em");
+                            if (mark.type === "link") {
+                                wrapper = document.createElement("a");
+                                wrapper.href = mark.attrs.href;
+                                wrapper.target = mark.attrs.target;
+                            }
+                            current.appendChild(wrapper);
+                            current = wrapper;
                         });
+                        current.textContent = node.text; // Safety here
+                        return root;
+                    } else {
+                        // No marks? Just return a plain text node
+                        return document.createTextNode(node.text);
                     }
-                    return text;
                 }
 
-                // 2. Map Content of Parent Nodes
-                const htmlContent = node.content 
-                    ? node.content.map(child => tiptapToHtml(child)).join("") 
-                    : "";
-
-                // 3. Handle Block Types
+                // 2. Handle Block Types
+                let element;
                 switch (node.type) {
                     case "doc":
-                        return `<div class="content-body">${htmlContent}</div>`;
-                    
-                    case "paragraph": {
-                        // Handle the custom "nodeTextAlignment" found in your source
-                        let style = node.attrs?.nodeTextAlignment 
-                            ? ` style='text-align: ${node.attrs.nodeTextAlignment}'` 
-                            : "";
-                        return `<p${style}>${htmlContent || "&nbsp;"}</p>`;
-                    }
+                        element = document.createElement("div");
+                        element.className = "content-body";
+                        break;
 
+                    case "paragraph":
+                        element = document.createElement("p");
+                        if (node.attrs?.nodeTextAlignment) {
+                            element.style.textAlign = node.attrs.nodeTextAlignment;
+                        }
+                        break;
+
+                    case "heading": 
+                        element = document.createElement(`h${node.attrs.level || 3}`);
+                        break;
+
+                    case "bulletList":
+                        element = document.createElement("ul");
+                        break;
+                    
+                    case "orderedList":
+                        element = document.createElement("ol");
+                        break;
+
+                    case "listItem":
+                        element = document.createElement("li");
+                        break;
+
+                    case "image": 
+                        element = document.createElement("img");
+                        element.src = node.attrs.src;
+                        element.alt = node.attrs.alt || "";
+                        return element; // Images don't have children
+
+                    case "blockquote":
+                        element = document.createElement("blockquote");
+                        break;
+                    
+                    case "codeBlock": {
+                        let pre = document.createElement("pre");
+                        element = document.createElement("code");
+                        pre.appendChild(element);
+
+                        if (node.content) {
+                            node.content.forEach(childNode => {
+                                const child = tiptapToHtml(childNode);
+                                if (child) element.appendChild(child);
+                            });
+                        }
+                        return pre;
+                    }
                     case "hardBreak":
-                        return "<br />";
+                        return document.createElement("br");
 
                     default:
-                        return htmlContent;
+                        element = document.createElement("span");
+                        break;
                 }
+
+                // 3. Recursive Step: Append children as actual DOM Nodes
+                if (node.content) {
+                    node.content.forEach(childNode => {
+                        const childElement = tiptapToHtml(childNode);
+                        if (childElement) {
+                            element.appendChild(childElement);
+                        }
+                    });
+                } else if (node.type !== "image" && node.type !== "hardBreak") {
+                    // Handle empty blocks with a non-breaking space
+                    element.textContent = "\u00A0";
+                }
+
+                return element;
             };
             content = tiptapToHtml(JSON.parse(json.content_json_string));
         }

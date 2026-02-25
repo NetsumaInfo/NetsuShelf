@@ -164,5 +164,9 @@ class _69shuTwParser extends ShuParser {
 
     findChapterTitle(dom) {
         return dom.querySelector("#nr_title");
-    }   
+    }
+    
+    findCoverImageUrl(dom) {
+        return util.getFirstImgSrc(dom, ".bookinfo table tbody tr td");
+    }
 }

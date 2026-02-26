@@ -2,7 +2,7 @@
 
 parserFactory.register("soafp.com", () => new SoafpParser());
 
-class SoafpParser extends Parser {
+class SoafpParser extends WordpressBaseParser {
     constructor() {
         super();
     }
@@ -12,21 +12,9 @@ class SoafpParser extends Parser {
         return util.hyperlinksToChapterList(menu);
     }
 
-    findContent(dom) {
-        return dom.querySelector("div.entry-content");
-    }
-
-    extractTitleImpl(dom) {
-        return dom.querySelector(".entry-title");
-    }
-
     extractAuthor() {
         //The site doesn't provide any author for books, so we're just using the TL
         return "Soafp";
-    }
-
-    extractLanguage(dom) {
-        return dom.querySelector("html").getAttribute("lang");
     }
 
     extractSubject(dom) {
@@ -42,10 +30,6 @@ class SoafpParser extends Parser {
     removeUnwantedElementsFromContentElement(element) {
         util.removeChildElementsMatchingSelector(element, "button");
         super.removeUnwantedElementsFromContentElement(element);
-    }
-
-    findChapterTitle(dom) {
-        return dom.querySelector("h1.entry-title");
     }
 
     findCoverImageUrl(dom) {

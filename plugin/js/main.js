@@ -43,12 +43,48 @@ var main = (function() {
         ["baka-tsuki.org", "Baka-Tsuki"]
     ]);
 
-    function pauseActionLabel() {
-        return "Pause";
+    function cancelActionLabel() {
+        return UIText.Common.cancel || "Cancel";
     }
 
-    function resumeActionLabel() {
-        return "Resume";
+    function cancellingActionLabel() {
+        return "Cancelling...";
+    }
+
+    function progressStatusLabel(actionMode = "pack", phase = "fetching") {
+        let formatLabel = getSelectedDownloadFormat().toUpperCase();
+        if (phase === "finalizing") {
+            return (actionMode === "library")
+                ? "Finalizing library..."
+                : `Finalizing ${formatLabel}...`;
+        }
+        if (phase === "packing") {
+            return (actionMode === "library")
+                ? "Preparing library..."
+                : `Building ${formatLabel}...`;
+        }
+        return (actionMode === "library")
+            ? "Adding to Library..."
+            : `Downloading ${formatLabel}...`;
+    }
+
+    function setProgressButtonState(button, { hidden = false, disabled = false, text = null, title = null } = {}) {
+        if (button == null) {
+            return;
+        }
+        button.hidden = hidden;
+        button.disabled = disabled;
+        if (text != null) {
+            button.textContent = text;
+        }
+        if (title != null) {
+            button.title = title;
+        }
+    }
+
+    function resetProgressDisplay() {
+        ProgressBar.setMax(1);
+        ProgressBar.setValue(0);
     }
 
     function getReferenceGroupingSourceSelect() {
@@ -530,6 +566,43 @@ var main = (function() {
         return `${source.storyLabel} (${source.host}, ${source.mappedGroups.length} groups)`;
     }
 
+    function formatReferenceSiteCount(count) {
+        return `${count} reference site${count === 1 ? "" : "s"}`;
+    }
+
+    function getActiveReferenceGroupingSource() {
+        let sourceId = parser?.getReferenceChapterGroupSource?.()?.id;
+        if (util.isNullOrEmpty(sourceId)) {
+            return null;
+        }
+        return referenceGroupingSources.find(candidate => candidate.id === sourceId) ?? null;
+    }
+
+    function buildReferenceGroupingProgressMessage(host, processedCount, totalCount) {
+        let parts = [];
+        if (referenceGroupingSources.length > 0) {
+            parts.push(`Loaded ${formatReferenceSiteCount(referenceGroupingSources.length)}.`);
+            let activeSource = getActiveReferenceGroupingSource();
+            if (activeSource != null) {
+                parts.push(`Active source: ${activeSource.storyLabel}.`);
+            }
+        }
+        parts.push(`Searching ${processedCount}/${totalCount}: ${referenceSiteLabel(host)}...`);
+        return parts.join(" ");
+    }
+
+    function buildReferenceGroupingCompletedMessage(failureCount = 0) {
+        let parts = [`Loaded ${formatReferenceSiteCount(referenceGroupingSources.length)}.`];
+        if (failureCount > 0) {
+            parts.push(`${failureCount} skipped.`);
+        }
+        let activeSource = getActiveReferenceGroupingSource() ?? referenceGroupingSources[0] ?? null;
+        if (activeSource != null) {
+            parts.push(`Active source: ${activeSource.storyLabel}.`);
+        }
+        return parts.join(" ");
+    }
+
     function updateReferenceGroupingSourceSelect(selectedValue = null) {
         let select = getReferenceGroupingSourceSelect();
         if (select == null) {
@@ -649,20 +722,24 @@ var main = (function() {
         };
     }
 
-    async function applyReferenceGroupingSource(sourceId) {
+    async function applyReferenceGroupingSource(sourceId, options = {}) {
         if (parser == null) {
             return;
         }
         if (util.isNullOrEmpty(sourceId) || (sourceId === "current")) {
             parser.clearReferenceChapterGroups();
-            setReferenceGroupingStatus("Using current site groups.", "info");
+            if (options.suppressStatus !== true) {
+                setReferenceGroupingStatus("Using current site groups.", "info");
+            }
             return;
         }
 
         let source = referenceGroupingSources.find(candidate => candidate.id === sourceId);
         if (source == null) {
             parser.clearReferenceChapterGroups();
-            setReferenceGroupingStatus("The selected reference site could not be found.", "error");
+            if (options.suppressStatus !== true) {
+                setReferenceGroupingStatus("The selected reference site could not be found.", "error");
+            }
             updateReferenceGroupingSourceSelect("current");
             return;
         }
@@ -677,10 +754,12 @@ var main = (function() {
 
         let mappedGroups = parser.getReferenceChapterGroups();
         if (mappedGroups.length === 0) {
-            setReferenceGroupingStatus(
-                `The selected reference site (${source.storyLabel}) did not match the current chapter list.`,
-                "error"
-            );
+            if (options.suppressStatus !== true) {
+                setReferenceGroupingStatus(
+                    `The selected reference site (${source.storyLabel}) did not match the current chapter list.`,
+                    "error"
+                );
+            }
             return;
         }
 
@@ -688,10 +767,12 @@ var main = (function() {
             CoverImageUI.setCoverImageUrl(source.storyCoverUrl);
         }
         syncChapterGroupingModeWithAvailableGroups(mappedGroups);
-        setReferenceGroupingStatus(
-            `Using groups from ${source.storyLabel} (${source.host}).`,
-            "success"
-        );
+        if (options.suppressStatus !== true) {
+            setReferenceGroupingStatus(
+                `Using groups from ${source.storyLabel} (${source.host}).`,
+                "success"
+            );
+        }
     }
 
     async function analyzeReferenceGroupingSources(options = {}) {
@@ -719,56 +800,61 @@ var main = (function() {
             return;
         }
 
-        let analyzeButton = document.getElementById("analyzeReferenceSitesButton");
-        if (analyzeButton != null) {
-            analyzeButton.disabled = true;
-        }
-        setReferenceGroupingStatus(`Searching ${selectedHosts.length} reference site${selectedHosts.length === 1 ? "" : "s"}...`, "info");
+        referenceGroupingSources = [];
+        referenceGroupingSourceSequence = 0;
+        parser.clearReferenceChapterGroups();
+        updateReferenceGroupingSourceSelect("current");
+        setReferenceGroupingStatus(buildReferenceGroupingProgressMessage(selectedHosts[0], 1, selectedHosts.length), "info");
 
         let sources = [];
         let failures = [];
+        let hasAppliedFirstSource = false;
 
-        try {
-            for (let host of selectedHosts) {
-                try {
-                    let match = await searchReferenceGroupingSourceByHost(host, searchTerms);
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    if (match == null) {
-                        failures.push(`${referenceSiteLabel(host)}: no matching story found`);
-                        continue;
-                    }
-                    let source = await analyzeReferenceGroupingSourceUrl(match.url, {
-                        storyLabel: match.title
-                    });
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    if (source == null) {
-                        failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
-                        continue;
-                    }
-                    sources.push(source);
-                } catch (error) {
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    failures.push(`${referenceSiteLabel(host)}: ${error.message}`);
+        for (let [index, host] of selectedHosts.entries()) {
+            setReferenceGroupingStatus(
+                buildReferenceGroupingProgressMessage(host, index + 1, selectedHosts.length),
+                sources.length === 0 ? "info" : "success"
+            );
+            try {
+                let match = await searchReferenceGroupingSourceByHost(host, searchTerms);
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
                 }
-            }
-        } finally {
-            if (analyzeButton != null) {
-                analyzeButton.disabled = false;
+                if (match == null) {
+                    failures.push(`${referenceSiteLabel(host)}: no matching story found`);
+                    continue;
+                }
+                let source = await analyzeReferenceGroupingSourceUrl(match.url, {
+                    storyLabel: match.title
+                });
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
+                }
+                if (source == null) {
+                    failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
+                    continue;
+                }
+                sources.push(source);
+                referenceGroupingSources = [...sources];
+                let selectedValue = getReferenceGroupingSourceSelect()?.value ?? "current";
+                if (!hasAppliedFirstSource) {
+                    updateReferenceGroupingSourceSelect(source.id);
+                    await applyReferenceGroupingSource(source.id, { suppressStatus: true });
+                    hasAppliedFirstSource = true;
+                } else {
+                    updateReferenceGroupingSourceSelect(selectedValue);
+                }
+            } catch (error) {
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
+                }
+                failures.push(`${referenceSiteLabel(host)}: ${error.message}`);
             }
         }
 
         if (analysisSequence !== referenceGroupingAnalysisSequence) {
             return;
         }
-
-        referenceGroupingSources = sources;
-        updateReferenceGroupingSourceSelect(sources[0]?.id ?? "current");
 
         if (sources.length === 0) {
             parser.clearReferenceChapterGroups();
@@ -781,13 +867,11 @@ var main = (function() {
             return;
         }
 
-        await applyReferenceGroupingSource(sources[0].id);
-        if ((0 < failures.length) && (0 < parser.getReferenceChapterGroups().length)) {
-            setReferenceGroupingStatus(
-                `Loaded ${sources.length} reference site${sources.length === 1 ? "" : "s"}. ${failures.length} skipped. Active source: ${sources[0].storyLabel}.`,
-                "success"
-            );
+        if (!hasAppliedFirstSource) {
+            updateReferenceGroupingSourceSelect(sources[0].id);
+            await applyReferenceGroupingSource(sources[0].id, { suppressStatus: true });
         }
+        setReferenceGroupingStatus(buildReferenceGroupingCompletedMessage(failures.length), "success");
     }
 
     // register listener that is invoked when script injected into HTML sends its results
@@ -921,6 +1005,7 @@ var main = (function() {
         let packButton = getPackEpubButton();
         if (packButton != null) {
             packButton.textContent = `Download ${formatLabel}`;
+            packButton.disabled = (unsupportedMessage !== "");
             packButton.title = unsupportedMessage;
         }
 
@@ -935,8 +1020,9 @@ var main = (function() {
 
         let pauseButton = document.getElementById("LibPauseToLibrary");
         if (pauseButton != null) {
-            pauseButton.textContent = pauseActionLabel();
-            pauseButton.title = "Pause current download.";
+            pauseButton.textContent = cancelActionLabel();
+            pauseButton.title = "Cancel current download.";
+            pauseButton.hidden = true;
         }
 
         return unsupportedMessage;
@@ -946,56 +1032,98 @@ var main = (function() {
         let packButton = getPackEpubButton();
         let addButton = document.getElementById("LibAddToLibrary");
         let pauseButton = document.getElementById("LibPauseToLibrary");
+        let progressSection = document.querySelector(".progressSection");
         if ((packButton == null) || (addButton == null) || (pauseButton == null)) {
             return;
         }
 
         applyNormalProgressActionLabels();
+        if (progressSection != null) {
+            progressSection.dataset.downloadState = storyDownloadSession?.status
+                ?? (progressActionState.isBusy ? "busy" : "idle");
+            progressSection.dataset.downloadPhase = storyDownloadSession?.phase ?? "";
+        }
         pauseButton.style.gridColumn = "";
         pauseButton.style.gridRow = "";
-        pauseButton.hidden = true;
-        pauseButton.disabled = true;
-        packButton.hidden = false;
-        addButton.hidden = false;
-
-        if (storyDownloadSession?.status === "paused") {
-            packButton.disabled = false;
-            packButton.textContent = resumeActionLabel();
-            packButton.title = "Resume the paused download.";
-            addButton.disabled = false;
-            addButton.textContent = UIText.Common.cancel || "Cancel";
-            addButton.title = "Cancel the paused download.";
-            return;
-        }
+        setProgressButtonState(pauseButton, { hidden: true, disabled: true });
+        setProgressButtonState(packButton, { hidden: false, disabled: packButton.disabled });
+        setProgressButtonState(addButton, { hidden: false, disabled: addButton.disabled });
 
         if (storyDownloadSession?.status === "running") {
-            pauseButton.hidden = false;
-            pauseButton.disabled = false;
-            pauseButton.style.gridRow = "1";
-            if (storyDownloadSession.actionMode === "library") {
-                addButton.hidden = true;
-                packButton.disabled = true;
-                pauseButton.style.gridColumn = "3";
+            let actionMode = storyDownloadSession.actionMode ?? "pack";
+            let phase = storyDownloadSession.phase ?? "fetching";
+            let requestedStopReason = storyDownloadSession.requestedStopReason;
+            let isCancelPending = requestedStopReason === "cancel";
+            let isFinalizing = phase === "finalizing";
+            let cancelLabel = isFinalizing
+                ? progressStatusLabel(actionMode, phase)
+                : (isCancelPending ? cancellingActionLabel() : cancelActionLabel());
+            let cancelTitle = isFinalizing
+                ? "The file is being finalized. Wait for it to finish."
+                : (isCancelPending
+                    ? "The current download is being cancelled."
+                    : "Cancel the current download and clear the current progress.");
+            let statusLabel = progressStatusLabel(actionMode, phase);
+
+            if (actionMode === "library") {
+                setProgressButtonState(packButton, {
+                    hidden: false,
+                    disabled: true,
+                    text: statusLabel,
+                    title: "A library import is running."
+                });
+                setProgressButtonState(addButton, {
+                    hidden: false,
+                    disabled: isFinalizing || isCancelPending,
+                    text: cancelLabel,
+                    title: cancelTitle
+                });
             } else {
-                packButton.hidden = true;
-                addButton.disabled = true;
-                pauseButton.style.gridColumn = "1";
+                setProgressButtonState(packButton, {
+                    hidden: false,
+                    disabled: isFinalizing || isCancelPending,
+                    text: cancelLabel,
+                    title: cancelTitle
+                });
+                setProgressButtonState(addButton, {
+                    hidden: false,
+                    disabled: true,
+                    text: statusLabel,
+                    title: "A download is already running."
+                });
             }
             return;
         }
 
         if (progressActionState.isBusy) {
-            pauseButton.hidden = false;
-            pauseButton.disabled = false;
-            pauseButton.style.gridRow = "1";
-            if (progressActionState.actionMode === "library") {
-                addButton.hidden = true;
-                packButton.disabled = true;
-                pauseButton.style.gridColumn = "3";
+            let actionMode = progressActionState.actionMode ?? "pack";
+            let statusLabel = progressStatusLabel(actionMode, "fetching");
+            if (actionMode === "library") {
+                setProgressButtonState(packButton, {
+                    hidden: false,
+                    disabled: true,
+                    text: statusLabel,
+                    title: "A library import is running."
+                });
+                setProgressButtonState(addButton, {
+                    hidden: false,
+                    disabled: false,
+                    text: cancelActionLabel(),
+                    title: "Stop the current download run."
+                });
             } else {
-                packButton.hidden = true;
-                addButton.disabled = true;
-                pauseButton.style.gridColumn = "1";
+                setProgressButtonState(packButton, {
+                    hidden: false,
+                    disabled: false,
+                    text: cancelActionLabel(),
+                    title: "Stop the current download run."
+                });
+                setProgressButtonState(addButton, {
+                    hidden: false,
+                    disabled: true,
+                    text: statusLabel,
+                    title: "A download is already running."
+                });
             }
         }
     }
@@ -1004,7 +1132,7 @@ var main = (function() {
         let unsupportedMessage = applyNormalProgressActionLabels();
         let formatSelect = document.getElementById("downloadFormatSelect");
         if (formatSelect != null) {
-            formatSelect.disabled = (storyDownloadSession?.status === "running") || (storyDownloadSession?.status === "paused");
+            formatSelect.disabled = (storyDownloadSession?.status === "running") || progressActionState.isBusy;
         }
 
         let downloadMarkedGroupsButton = document.getElementById("downloadMarkedChapterGroupsButton");
@@ -1211,6 +1339,7 @@ var main = (function() {
     function createStoryDownloadSession(options) {
         let session = {
             status: "idle",
+            phase: "idle",
             parser: parser,
             actionMode: options.isLibraryAction ? "library" : "pack",
             isLibraryAction: options.isLibraryAction,
@@ -1221,16 +1350,23 @@ var main = (function() {
             fileHandle: options.fileHandle,
             suppressErrorLog: options.suppressErrorLog === true,
             sourceUrls: getSelectedPages().map(page => page.sourceUrl),
-            resumeAction: null,
-            cancelAction: null
+            requestedStopReason: null
         };
-        session.resumeAction = () => runStoryDownloadSession(session, { resume: true });
-        session.cancelAction = () => cancelPausedStoryDownloadSession();
         return session;
+    }
+
+    function hasRunningStoryDownloadSession() {
+        return storyDownloadSession?.status === "running";
     }
 
     function hasPausedStoryDownloadSession() {
         return storyDownloadSession?.status === "paused";
+    }
+
+    function hasCancelableBusyDownloadOperation() {
+        return progressActionState.isBusy
+            && !hasRunningStoryDownloadSession()
+            && !hasPausedStoryDownloadSession();
     }
 
     function getStoryDownloadPages(session) {
@@ -1246,9 +1382,48 @@ var main = (function() {
         }
         clearFetchedChapterData(getStoryDownloadPages(storyDownloadSession));
         storyDownloadSession = null;
-        ProgressBar.setMax(1);
-        ProgressBar.setValue(0);
+        resetProgressDisplay();
         updateDownloadFormatUi();
+    }
+
+    function requestStoryDownloadStop(stopReason) {
+        if (!hasRunningStoryDownloadSession()) {
+            return;
+        }
+        if ((stopReason === "cancel") && (storyDownloadSession.phase === "finalizing")) {
+            return;
+        }
+        storyDownloadSession.requestedStopReason = stopReason;
+        let pauseButton = document.getElementById("LibPauseToLibrary");
+        if (pauseButton != null) {
+            pauseButton.disabled = true;
+        }
+        let addButton = document.getElementById("LibAddToLibrary");
+        if (addButton != null) {
+            addButton.disabled = true;
+        }
+        getPackEpubButton().disabled = true;
+        syncProgressActionButtons();
+        util.sleepController.abort();
+    }
+
+    function cancelCurrentStoryDownloadSession() {
+        if (hasPausedStoryDownloadSession()) {
+            cancelPausedStoryDownloadSession();
+            return;
+        }
+        requestStoryDownloadStop("cancel");
+    }
+
+    function cancelCurrentBusyDownloadOperation() {
+        if (!hasCancelableBusyDownloadOperation()) {
+            return;
+        }
+        let pauseButton = document.getElementById("LibPauseToLibrary");
+        if (pauseButton != null) {
+            pauseButton.disabled = true;
+        }
+        util.sleepController.abort();
     }
 
     function setProgressActionBusy(isBusy, actionMode = "pack") {
@@ -1256,6 +1431,9 @@ var main = (function() {
             isBusy: isBusy,
             actionMode: actionMode
         };
+        if (!isBusy && !hasRunningStoryDownloadSession()) {
+            resetProgressDisplay();
+        }
         syncProgressActionButtons();
     }
 
@@ -1636,11 +1814,11 @@ var main = (function() {
         await downloadBatches([[chapter]], true);
     }
 
-    async function runStoryDownloadSession(session, { resume = false } = {}) {
+    async function runStoryDownloadSession(session) {
         if ((session == null) || (session.parser !== parser)) {
             storyDownloadSession = null;
             updateDownloadFormatUi();
-            ErrorLog.showErrorMessage("The paused download is no longer available. Start it again.");
+            ErrorLog.showErrorMessage("The previous download session is no longer available. Start it again.");
             return;
         }
 
@@ -1654,15 +1832,15 @@ var main = (function() {
             return;
         }
 
-        if (!resume) {
-            clearFetchedChapterData(pages);
-            ChapterUrlsUI.resetDownloadStateImages();
-            ErrorLog.clearHistory();
-        }
+        clearFetchedChapterData(pages);
+        ChapterUrlsUI.resetDownloadStateImages();
+        ErrorLog.clearHistory();
 
-        let paused = false;
+        let stopReason = null;
         storyDownloadSession = session;
         storyDownloadSession.status = "running";
+        storyDownloadSession.phase = "fetching";
+        storyDownloadSession.requestedStopReason = null;
         window.workInProgress = true;
         main.getPackEpubButton().disabled = true;
         setProgressActionBusy(true, session.actionMode);
@@ -1672,16 +1850,20 @@ var main = (function() {
                 parser.onStartCollecting();
                 await parser.fetchContent();
                 if (shouldStopCurrentDownload()) {
-                    paused = true;
+                    stopReason = session.requestedStopReason ?? "cancel";
                     return;
                 }
 
+                session.phase = "packing";
+                syncProgressActionButtons();
                 let content = await buildDownloadContent(session.metaInfo);
                 if (shouldStopCurrentDownload()) {
-                    paused = true;
+                    stopReason = session.requestedStopReason ?? "cancel";
                     return;
                 }
 
+                session.phase = "finalizing";
+                syncProgressActionButtons();
                 if (session.isLibraryAction) {
                     await library.LibAddToLibrary(
                         content,
@@ -1701,8 +1883,8 @@ var main = (function() {
                 }
             });
 
-            if (paused || shouldStopCurrentDownload()) {
-                paused = true;
+            if ((stopReason != null) || shouldStopCurrentDownload()) {
+                stopReason = stopReason ?? session.requestedStopReason ?? "cancel";
                 return;
             }
 
@@ -1713,7 +1895,7 @@ var main = (function() {
             }
         } catch (err) {
             if (util.isAbortError(err)) {
-                paused = true;
+                stopReason = session.requestedStopReason ?? "cancel";
                 return;
             }
             storyDownloadSession = null;
@@ -1722,12 +1904,16 @@ var main = (function() {
         } finally {
             window.workInProgress = false;
             main.getPackEpubButton().disabled = false;
-            if (paused) {
-                storyDownloadSession = session;
-                storyDownloadSession.status = "paused";
+            if (stopReason === "cancel") {
+                clearFetchedChapterData(pages);
+                storyDownloadSession = null;
+                ProgressBar.setMax(1);
+                ProgressBar.setValue(0);
             } else if (storyDownloadSession === session) {
+                storyDownloadSession.phase = "complete";
                 storyDownloadSession = null;
             }
+            session.requestedStopReason = null;
             setProgressActionBusy(false, session.actionMode);
             if (util.sleepController.signal.aborted) {
                 util.sleepController = new AbortController();
@@ -1785,26 +1971,48 @@ var main = (function() {
         }));
     }
 
-    function pauseToLibrary() {
-        let pauseButton = document.getElementById("LibPauseToLibrary");
-        if (pauseButton != null) {
-            pauseButton.disabled = true;
+    function onPauseStoryDownloadClick() {
+        if (hasRunningStoryDownloadSession()) {
+            cancelCurrentStoryDownloadSession();
+            return;
         }
-        util.sleepController.abort();
+        cancelCurrentBusyDownloadOperation();
     }
 
     async function onPackEpubButtonClick() {
-        if (hasPausedStoryDownloadSession()) {
-            await storyDownloadSession.resumeAction?.();
+        if (hasRunningStoryDownloadSession()) {
+            if (storyDownloadSession.actionMode === "pack") {
+                cancelCurrentStoryDownloadSession();
+            }
             return;
+        }
+        if (hasCancelableBusyDownloadOperation()) {
+            if (progressActionState.actionMode === "pack") {
+                cancelCurrentBusyDownloadOperation();
+            }
+            return;
+        }
+        if (hasPausedStoryDownloadSession()) {
+            cancelPausedStoryDownloadSession();
         }
         await fetchContentAndPackEpub.call(getPackEpubButton());
     }
 
     async function onLibraryActionButtonClick() {
-        if (hasPausedStoryDownloadSession()) {
-            storyDownloadSession.cancelAction?.();
+        if (hasRunningStoryDownloadSession()) {
+            if (storyDownloadSession.actionMode === "library") {
+                cancelCurrentStoryDownloadSession();
+            }
             return;
+        }
+        if (hasCancelableBusyDownloadOperation()) {
+            if (progressActionState.actionMode === "library") {
+                cancelCurrentBusyDownloadOperation();
+            }
+            return;
+        }
+        if (hasPausedStoryDownloadSession()) {
+            cancelPausedStoryDownloadSession();
         }
         await fetchContentAndPackEpub.call(document.getElementById("LibAddToLibrary"));
     }
@@ -2368,7 +2576,7 @@ var main = (function() {
         setProgressActionBusy(false);
         ChapterUrlsUI.clearChapterUrlsTable();
         CoverImageUI.clearUI();
-        ProgressBar.setValue(0);
+        resetProgressDisplay();
         // Clear the selected value so it doesn't look like a parser is selected
         document.getElementById("manuallySelectParserTag").selectedIndex = -1;
     }
@@ -2522,7 +2730,6 @@ var main = (function() {
         if (downloadAllGroupsButton != null) {
             downloadAllGroupsButton.onclick = downloadAllChapterGroups;
         }
-        document.getElementById("analyzeReferenceSitesButton").onclick = analyzeReferenceGroupingSources;
         document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
         getReferenceSitePresetCheckboxes().forEach((checkbox) => {
             checkbox.onchange = () => {
@@ -2534,18 +2741,6 @@ var main = (function() {
                 scheduleAutomaticReferenceGroupingAnalysis({ force: true });
             };
         });
-        document.getElementById("selectRecommendedReferenceSitesButton").onclick = () => {
-            setSelectedReferenceSiteHosts(reliableReferenceSites);
-            scheduleAutomaticReferenceGroupingAnalysis({ force: true, immediate: true });
-        };
-        document.getElementById("clearReferenceSiteSelectionButton").onclick = () => {
-            setSelectedReferenceSiteHosts([]);
-            clearReferenceGroupingSources({
-                preserveStatus: true,
-                preserveSiteSelection: true
-            });
-            setReferenceGroupingStatus("No reference site selected.", "info");
-        };
         getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
         document.getElementById("titleInput").addEventListener("change", () => {
             clearReferenceGroupingSources({
@@ -2562,7 +2757,7 @@ var main = (function() {
         document.getElementById("ShowMoreMetadataOptionsCheckbox").addEventListener("change", () => onShowMoreMetadataOptionsClick());
         document.getElementById("LibShowAdvancedOptionsCheckbox").addEventListener("change", () => Library.LibRenderSavedEpubs());
         document.getElementById("LibAddToLibrary").addEventListener("click", onLibraryActionButtonClick);
-        document.getElementById("LibPauseToLibrary").addEventListener("click", pauseToLibrary);
+        document.getElementById("LibPauseToLibrary").addEventListener("click", onPauseStoryDownloadClick);
         document.getElementById("stylesheetToDefaultButton").onclick = onStylesheetToDefaultClick;
         document.getElementById("resetButton").onclick = resetUI;
         document.getElementById("clearCoverImageUrlButton").onclick = clearCoverUrl;

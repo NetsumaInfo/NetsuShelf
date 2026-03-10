@@ -25,6 +25,13 @@ class FetchErrorHandler {
     }
 
     onFetchError(url, error) {
+        if (util.sleepController?.signal?.aborted || util.isAbortError(error)) {
+            return Promise.reject(
+                util.isAbortError(error)
+                    ? error
+                    : new DOMException("The user aborted a request.", "AbortError")
+            );
+        }
         return Promise.reject(new Error(this.makeFailMessage(url, error.message)));
     }
 
@@ -149,7 +156,10 @@ class HttpClient {
     }
 
     static makeOptions() {
-        return { credentials: "include" };
+        return {
+            credentials: "include",
+            signal: util.sleepController.signal
+        };
     }
 
     static wrapFetch(url, wrapOptions) {
@@ -201,6 +211,11 @@ class HttpClient {
         await HttpClient.setPartitionCookies(url);
         if (wrapOptions.fetchOptions == null) {
             wrapOptions.fetchOptions = HttpClient.makeOptions();
+        } else {
+            wrapOptions.fetchOptions = {
+                ...HttpClient.makeOptions(),
+                ...wrapOptions.fetchOptions
+            };
         }
         if (wrapOptions.errorHandler == null) {
             wrapOptions.errorHandler = new FetchErrorHandler();

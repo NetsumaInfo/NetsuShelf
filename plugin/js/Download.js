@@ -4,6 +4,74 @@ class Download {
     constructor() {
     }
 
+    static outputFormat() {
+        return document.getElementById("downloadFormatSelect")?.value ?? "epub";
+    }
+
+    static extensionForFormat(format) {
+        switch ((format ?? "epub").toLowerCase()) {
+            case "html":
+                return ".html";
+            case "pdf":
+                return ".pdf";
+            case "txt":
+                return ".txt";
+            case "mobi":
+                return ".mobi";
+            default:
+                return ".epub";
+        }
+    }
+
+    static stripKnownExtension(fileName) {
+        return (fileName ?? "").replace(/\.(epub|html|pdf|txt|mobi)$/i, "");
+    }
+
+    static sanitizeFileStem(stem, fallback = "download") {
+        let value = (stem ?? "").trim();
+        if (value === "") {
+            value = fallback;
+        }
+        value = value
+            .replace(/[\\/:*?"<>|]+/g, " - ")
+            .replace(/\s+/g, " ")
+            .replace(/^\.+|\.+$/g, "")
+            .trim();
+        return value === "" ? fallback : value;
+    }
+
+    static looksLikeOpaqueFileStem(stem) {
+        let value = Download.stripKnownExtension(stem).trim();
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+            || /^[0-9a-f]{24,}$/i.test(value);
+    }
+
+    static fallbackFileStem(overrides = {}) {
+        let candidates = [
+            overrides.suggestedFileName,
+            overrides.fileName,
+            overrides.title,
+            overrides.group ? `${document.getElementById("titleInput")?.value ?? ""} - ${overrides.group}` : null,
+            document.getElementById("titleInput")?.value ?? null,
+            "download"
+        ];
+        for (let candidate of candidates) {
+            if (!util.isNullOrEmpty(candidate)) {
+                let stem = Download.sanitizeFileStem(candidate, "download");
+                if (!Download.looksLikeOpaqueFileStem(stem)) {
+                    return stem;
+                }
+            }
+        }
+        return "download";
+    }
+
+    static addExtensionForFormat(fileName, format) {
+        let extension = Download.extensionForFormat(format);
+        let stem = Download.stripKnownExtension(fileName);
+        return stem + extension;
+    }
+
     static init() {
         Download.saveOn = util.isFirefox() ? Download.saveOnFirefox : Download.saveOnChrome;
         if (util.isFirefox()) {
@@ -12,6 +80,7 @@ class Download {
         } else {
             Download.saveOn = Download.saveOnChrome;
             chrome.downloads.onChanged.addListener(Download.onChanged);
+            chrome.downloads.onDeterminingFilename?.addListener?.(Download.onDeterminingFilename);
         }
     }
 
@@ -27,38 +96,177 @@ class Download {
         return false;
     }
 
-    static CustomFilename() {
-        let CustomFilename = document.getElementById("CustomFilenameInput").value;
+    static buildFileName(overrides = {}) {
+        let fallbackStem = Download.fallbackFileStem(overrides);
+        if (overrides.preferSuggestedFileName === true) {
+            let preferredStem = Download.sanitizeFileStem(
+                Download.stripKnownExtension(overrides.suggestedFileName ?? overrides.fileName),
+                fallbackStem
+            );
+            if (!Download.looksLikeOpaqueFileStem(preferredStem)) {
+                return Download.addExtensionForFormat(preferredStem, overrides.format ?? Download.outputFormat());
+            }
+        }
+
+        let CustomFilename = Download.customFilenameTemplate();
+        let startingUrl = overrides.startingUrl ?? document.getElementById("startingUrlInput").value;
+        let hostname = "";
+        try {
+            hostname = new URL(startingUrl)?.hostname ?? "";
+        } catch (error) {
+            hostname = "";
+        }
         let ToReplace = {
-            "%URL_hostname%": (new URL(document.getElementById("startingUrlInput").value))?.hostname,
-            "%Title%": document.getElementById("titleInput").value,
-            "%Author%": document.getElementById("authorInput").value,
-            "%Language%": document.getElementById("languageInput").value,
-            "%Chapters_Count%":  document.getElementById("spanChapterCount").innerHTML,
-            "%Chapters_Downloaded%":  document.getElementById("fetchProgress").value-1,
-            "%Filename%": document.getElementById("fileNameInput").value,
+            "%URL_hostname%": hostname,
+            "%Title%": overrides.title ?? document.getElementById("titleInput").value,
+            "%Author%": overrides.author ?? document.getElementById("authorInput").value,
+            "%Language%": overrides.language ?? document.getElementById("languageInput").value,
+            "%Chapters_Count%": overrides.chaptersCount ?? document.getElementById("spanChapterCount").innerHTML,
+            "%Chapters_Downloaded%": overrides.chaptersDownloaded ?? (document.getElementById("fetchProgress").value - 1),
+            "%Filename%": overrides.fileName ?? document.getElementById("fileNameInput").value,
+            "%Group%": overrides.group ?? "",
+            "%Group_Title%": overrides.groupTitle ?? "",
+            "%Group_Range%": overrides.groupRange ?? ""
         };
         for (const [key, value] of Object.entries(ToReplace)) {
-            CustomFilename = CustomFilename.replaceAll(key, value);
+            CustomFilename = CustomFilename.replaceAll(key, value ?? "");
         }
-        if (Download.isFileNameIllegalOnWindows(CustomFilename)) {
-            ErrorLog.showErrorMessage(UIText.Error.errorIllegalFileName(CustomFilename, Download.illegalWindowsFileNameChars));
-            return EpubPacker.addExtensionIfMissing("IllegalFileName");
+        let stem = Download.sanitizeFileStem(Download.stripKnownExtension(CustomFilename), fallbackStem);
+        if (Download.looksLikeOpaqueFileStem(stem)) {
+            stem = fallbackStem;
         }
-        return EpubPacker.addExtensionIfMissing(CustomFilename);
+        if (Download.isFileNameIllegalOnWindows(stem)) {
+            ErrorLog.showErrorMessage(UIText.Error.errorIllegalFileName(stem, Download.illegalWindowsFileNameChars));
+            stem = "IllegalFileName";
+        }
+        return Download.addExtensionForFormat(stem, overrides.format ?? Download.outputFormat());
+    }
+
+    static CustomFilename(overrides = {}) {
+        return Download.buildFileName({
+            ...overrides,
+            format: "epub"
+        });
+    }
+
+    static customFilenameTemplate() {
+        return document.getElementById("CustomFilenameInput")?.value ?? "%Filename%";
+    }
+
+    static templateUsesGroupTokens() {
+        return /%Group(?:_Title|_Range)?%/i.test(Download.customFilenameTemplate());
+    }
+
+    static outputMimeType(format) {
+        switch ((format ?? Download.outputFormat()).toLowerCase()) {
+            case "html":
+                return "text/html";
+            case "pdf":
+                return "application/pdf";
+            case "txt":
+                return "text/plain";
+            case "mobi":
+                return "application/x-mobipocket-ebook";
+            default:
+                return "application/epub+zip";
+        }
+    }
+
+    static outputTypeDescription(format) {
+        switch ((format ?? Download.outputFormat()).toLowerCase()) {
+            case "html":
+                return "HTML document";
+            case "pdf":
+                return "PDF document";
+            case "txt":
+                return "Text document";
+            case "mobi":
+                return "MOBI ebook";
+            default:
+                return "EPUB ebook";
+        }
+    }
+
+    static normalizeSaveFileName(fileName, format = Download.outputFormat()) {
+        return Download.buildFileName({
+            preferSuggestedFileName: true,
+            suggestedFileName: fileName,
+            fileName: fileName,
+            title: document.getElementById("titleInput")?.value ?? "download",
+            format: format
+        });
+    }
+
+    static errorMessage(error) {
+        return error?.message ?? String(error ?? "Download failed");
+    }
+
+    static toUserFacingError(error) {
+        let message = Download.errorMessage(error);
+        if (message.includes("File already exists")) {
+            return new Error("A file with this name already exists. Choose another name or enable overwrite.");
+        }
+        return error instanceof Error ? error : new Error(message);
+    }
+
+    static canUseSavePicker(backgroundDownload = false) {
+        return !backgroundDownload
+            && (typeof window.showSaveFilePicker === "function")
+            && !util.isFirefox();
+    }
+
+    static async pickSaveLocation(fileName, format = Download.outputFormat()) {
+        let pickerOptions = {
+            suggestedName: fileName,
+            types: [{
+                description: Download.outputTypeDescription(format),
+                accept: {
+                    [Download.outputMimeType(format)]: [Download.extensionForFormat(format)]
+                }
+            }]
+        };
+        try {
+            return await window.showSaveFilePicker(pickerOptions);
+        } catch (error) {
+            if (error?.name === "AbortError") {
+                return null;
+            }
+            throw error;
+        }
+    }
+
+    static async saveToPickedLocation(blob, fileHandle) {
+        if (fileHandle == null) {
+            return;
+        }
+        let writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
     }
 
     /** write blob to "Downloads" directory */
     static save(blob, fileName, overwriteExisting, backgroundDownload) {
+        let format = Download.outputFormat();
+        let normalizedFileName = Download.normalizeSaveFileName(fileName, format);
         let options = {
             url: URL.createObjectURL(blob),
-            filename: fileName,
+            filename: normalizedFileName,
             saveAs: !backgroundDownload
         };
-        if (overwriteExisting) {
-            options.conflictAction = "overwrite";
+        if (backgroundDownload) {
+            options.conflictAction = overwriteExisting ? "overwrite" : "uniquify";
         }
-        let cleanup = () => { URL.revokeObjectURL(options.url); };
+        if (!util.isFirefox()) {
+            let pending = { filename: normalizedFileName };
+            if (options.conflictAction != null) {
+                pending.conflictAction = options.conflictAction;
+            }
+            Download.pendingSuggestedFileNames.set(options.url, pending);
+        }
+        let cleanup = () => {
+            Download.pendingSuggestedFileNames.delete(options.url);
+            URL.revokeObjectURL(options.url);
+        };
         return Download.saveOn(options, cleanup);
     }
 
@@ -75,7 +283,8 @@ class Download {
 
     static downloadCallback(downloadId, cleanup, resolve, reject) {
         if (downloadId === undefined) {
-            reject(new Error(chrome.runtime.lastError.message));
+            cleanup();
+            reject(Download.toUserFacingError(chrome.runtime.lastError));
         } else {
             Download.onDownloadStarted(downloadId, 
                 () => { 
@@ -126,6 +335,19 @@ class Download {
         return platformInfo.os.toLowerCase().includes("android");
     }
 
+    static onDeterminingFilename(downloadItem, suggest) {
+        let pending = Download.pendingSuggestedFileNames.get(downloadItem.url);
+        if (pending != null) {
+            let suggestion = { filename: pending.filename };
+            if (pending.conflictAction != null) {
+                suggestion.conflictAction = pending.conflictAction;
+            }
+            suggest(suggestion);
+            return;
+        }
+        suggest();
+    }
+
     static onChanged(delta) {
         if ((delta.state != null) && (delta.state.current === "complete")) {
             let action = Download.toCleanup.get(delta.id);
@@ -146,5 +368,6 @@ class Download {
 }
 
 Download.toCleanup = new Map();
+Download.pendingSuggestedFileNames = new Map();
 Download.illegalWindowsFileNameChars = "~/?<>\\:*|\"";
 Download.init();

@@ -13,7 +13,7 @@ var main = (function() {
             util.log(message);
             // convert the string returned from content script back into a DOM
             let dom = new DOMParser().parseFromString(message.document, "text/html");
-            populateControlsWithDom(message.url, dom);
+            void populateControlsWithDom(message.url, dom).catch(handlePopupAsyncError);
         }
     }
 
@@ -22,6 +22,773 @@ var main = (function() {
     let parser = null;
     let userPreferences = null;
     let library = new Library; 
+    let referenceGroupingSources = [];
+    let referenceGroupingSourceSequence = 0;
+    let referenceGroupingAutoAnalyzeTimer = null;
+    let referenceGroupingAnalysisSequence = 0;
+    let progressActionState = { isBusy: false, actionMode: "pack" };
+    let storyDownloadSession = null;
+    let reliableReferenceSites = [
+        "webnovel.com",
+        "wuxiaworld.com",
+        "kakuyomu.jp",
+        "syosetu.com",
+        "baka-tsuki.org"
+    ];
+    let referenceSiteLabels = new Map([
+        ["webnovel.com", "Webnovel"],
+        ["wuxiaworld.com", "Wuxiaworld"],
+        ["kakuyomu.jp", "Kakuyomu"],
+        ["syosetu.com", "Syosetu"],
+        ["baka-tsuki.org", "Baka-Tsuki"]
+    ]);
+
+    function pauseActionLabel() {
+        return "Pause";
+    }
+
+    function resumeActionLabel() {
+        return "Resume";
+    }
+
+    function getReferenceGroupingSourceSelect() {
+        return document.getElementById("referenceGroupingSourceSelect");
+    }
+
+    function getReferenceGroupingStatus() {
+        return document.getElementById("referenceGroupingStatus");
+    }
+
+    function getReferenceSitePresetCheckboxes() {
+        return [...document.querySelectorAll("#referenceSitePresetFilters input[data-reference-host]")];
+    }
+
+    function syncReferenceSiteChipVisualState() {
+        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
+            checkbox.closest(".referenceSiteChip")
+                ?.classList.toggle("referenceSiteChipActive", checkbox.checked);
+        });
+    }
+
+    function setReferenceGroupingStatus(message, state = "info") {
+        let status = getReferenceGroupingStatus();
+        if (status == null) {
+            return;
+        }
+        status.textContent = message ?? "";
+        status.hidden = util.isNullOrEmpty(message);
+        status.dataset.state = state;
+    }
+
+    function readSelectedReferenceSiteHostsFromUi() {
+        return new Set(
+            getReferenceSitePresetCheckboxes()
+                .filter(checkbox => checkbox.checked)
+                .map(checkbox => checkbox.dataset.referenceHost)
+        );
+    }
+
+    function setSelectedReferenceSiteHosts(hosts) {
+        let selectedHosts = hosts instanceof Set ? hosts : new Set(hosts ?? []);
+        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
+            checkbox.checked = selectedHosts.has(checkbox.dataset.referenceHost);
+        });
+        syncReferenceSiteChipVisualState();
+    }
+
+    function referenceSiteLabel(host) {
+        return referenceSiteLabels.get(host) ?? host;
+    }
+
+    function shouldAutoSwitchToGroupedView(groups) {
+        if (!Array.isArray(groups) || (groups.length === 0)) {
+            return false;
+        }
+        return groups.some(group => ChapterUrlsUI.isVolumeLikeGroup(group)) || (groups.length > 1);
+    }
+
+    function syncChapterGroupingModeWithAvailableGroups(groups) {
+        let modeSelect = document.getElementById("chapterGroupingModeSelect");
+        if ((modeSelect == null) || (modeSelect.value !== "flat") || !shouldAutoSwitchToGroupedView(groups)) {
+            return;
+        }
+
+        modeSelect.value = groups.some(group => ChapterUrlsUI.isVolumeLikeGroup(group))
+            ? "volumes"
+            : "groups";
+        modeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function getCurrentStoryTitle() {
+        return getValueFromUiField("titleInput")?.trim() ?? "";
+    }
+
+    function getCurrentStoryUrl() {
+        return parser?.state?.chapterListUrl
+            ?? getValueFromUiField("startingUrlInput")
+            ?? initialWebPage?.baseURI
+            ?? "";
+    }
+
+    function sanitizeReferenceSearchTerm(value) {
+        return (value ?? "")
+            .replace(/\s+/g, " ")
+            .replace(/^[\s\-:|/]+|[\s\-:|/]+$/g, "")
+            .trim();
+    }
+
+    function addReferenceSearchCandidate(candidates, seen, value) {
+        let candidate = sanitizeReferenceSearchTerm(value);
+        if (util.isNullOrEmpty(candidate)) {
+            return;
+        }
+        let key = candidate.toLocaleLowerCase();
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        candidates.push(candidate);
+    }
+
+    function expandReferenceSearchCandidate(candidates, seen, value) {
+        let candidate = sanitizeReferenceSearchTerm(value);
+        if (util.isNullOrEmpty(candidate)) {
+            return;
+        }
+        addReferenceSearchCandidate(candidates, seen, candidate);
+
+        candidate
+            .replace(/[()[\]]/g, "|")
+            .split(/\s+\|\s+|\s+[–—-]\s+|\s*:\s*/g)
+            .forEach(part => addReferenceSearchCandidate(candidates, seen, part));
+
+        let slugTokens = candidate
+            .split(/\s+/)
+            .map(token => token.trim())
+            .filter(token => token.length > 1);
+        for (let size = Math.min(slugTokens.length, 5); size >= 2; size--) {
+            addReferenceSearchCandidate(candidates, seen, slugTokens.slice(-size).join(" "));
+        }
+    }
+
+    function popupRuntimeErrorMessage(error) {
+        return error?.message ?? String(error ?? "");
+    }
+
+    function isHandledPopupRuntimeError(error) {
+        let message = popupRuntimeErrorMessage(error);
+        return message.includes("No tab with id")
+            || message.includes("File already exists")
+            || message.includes("A file with this name already exists.");
+    }
+
+    function handlePopupAsyncError(error) {
+        if (popupRuntimeErrorMessage(error).includes("No tab with id")) {
+            handleTabModeLoadError(error);
+            return;
+        }
+        ErrorLog.showErrorMessage(Download.toUserFacingError(error));
+    }
+
+    function onUnhandledRejection(event) {
+        let reason = event?.reason;
+        if (!isHandledPopupRuntimeError(reason)) {
+            return;
+        }
+        event.preventDefault();
+        handlePopupAsyncError(reason);
+    }
+
+    function collectReferenceSearchCandidatesFromUrl(url, candidates, seen) {
+        if (util.isNullOrEmpty(url) || !util.isUrl(url)) {
+            return;
+        }
+        let ignoredSegments = new Set([
+            "book",
+            "books",
+            "comic",
+            "novel",
+            "novels",
+            "works",
+            "episodes",
+            "chapter",
+            "chapters",
+            "category",
+            "series",
+            "translatedtales",
+            "tag"
+        ]);
+        let parsed = new URL(url);
+        parsed.pathname
+            .split("/")
+            .map(segment => decodeURIComponent(segment).trim())
+            .filter(segment => !util.isNullOrEmpty(segment))
+            .filter(segment => !ignoredSegments.has(segment.toLocaleLowerCase()))
+            .forEach((segment) => {
+                if (/^\d+$/.test(segment)) {
+                    return;
+                }
+                expandReferenceSearchCandidate(
+                    candidates,
+                    seen,
+                    segment.replace(/[_-]+/g, " ")
+                );
+            });
+    }
+
+    function buildReferenceSearchTitleCandidates() {
+        let candidates = [];
+        let seen = new Set();
+
+        expandReferenceSearchCandidate(candidates, seen, getCurrentStoryTitle());
+        expandReferenceSearchCandidate(candidates, seen, parser?.extractTitle?.(initialWebPage));
+        expandReferenceSearchCandidate(candidates, seen, initialWebPage?.querySelector("meta[property='og:title']")?.content);
+        expandReferenceSearchCandidate(candidates, seen, initialWebPage?.querySelector("meta[name='twitter:title']")?.content);
+        expandReferenceSearchCandidate(candidates, seen, initialWebPage?.querySelector("title")?.textContent);
+        collectReferenceSearchCandidatesFromUrl(getCurrentStoryUrl(), candidates, seen);
+
+        return candidates.slice(0, 10);
+    }
+
+    function normalizeReferenceMatchText(value) {
+        return sanitizeReferenceSearchTerm(value)
+            .normalize("NFKD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLocaleLowerCase()
+            .replace(/[&]+/g, " and ")
+            .replace(/['’]/g, "")
+            .replace(/[^\p{L}\p{N}]+/gu, " ")
+            .replace(/\b(the|a|an|novel|webnovel|web|light|roman|story|official)\b/gu, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function tokenizeReferenceMatchText(value) {
+        return normalizeReferenceMatchText(value)
+            .split(" ")
+            .filter(token => token.length > 1);
+    }
+
+    function scoreReferenceTitleMatch(searchTitle, candidateTitle) {
+        let normalizedSearch = normalizeReferenceMatchText(searchTitle);
+        let normalizedCandidate = normalizeReferenceMatchText(candidateTitle);
+        if (util.isNullOrEmpty(normalizedSearch) || util.isNullOrEmpty(normalizedCandidate)) {
+            return 0;
+        }
+        if (normalizedSearch === normalizedCandidate) {
+            return 1;
+        }
+        if (normalizedCandidate.includes(normalizedSearch) || normalizedSearch.includes(normalizedCandidate)) {
+            let maxLength = Math.max(normalizedSearch.length, normalizedCandidate.length, 1);
+            let delta = Math.abs(normalizedSearch.length - normalizedCandidate.length) / maxLength;
+            return Math.max(0.72, 0.94 - (delta * 0.22));
+        }
+
+        let searchTokens = [...new Set(tokenizeReferenceMatchText(normalizedSearch))];
+        let candidateTokens = new Set(tokenizeReferenceMatchText(normalizedCandidate));
+        if ((searchTokens.length === 0) || (candidateTokens.size === 0)) {
+            return 0;
+        }
+        let overlap = searchTokens.filter(token => candidateTokens.has(token)).length;
+        if (overlap === 0) {
+            return 0;
+        }
+        let precision = overlap / searchTokens.length;
+        let recall = overlap / candidateTokens.size;
+        let phrase = searchTokens.slice(0, Math.min(3, searchTokens.length)).join(" ");
+        let phraseBonus = util.isNullOrEmpty(phrase) || !normalizedCandidate.includes(phrase) ? 0 : 0.08;
+        return Math.min(0.9, (precision * 0.65) + (recall * 0.2) + phraseBonus);
+    }
+
+    function dedupeReferenceMatches(matches) {
+        let deduped = new Map();
+        matches.forEach((match) => {
+            if (util.isNullOrEmpty(match?.url) || util.isNullOrEmpty(match?.title)) {
+                return;
+            }
+            if (!deduped.has(match.url)) {
+                deduped.set(match.url, {
+                    url: match.url,
+                    title: match.title.trim(),
+                    aliases: (match.aliases ?? []).filter(alias => !util.isNullOrEmpty(alias)),
+                    penalty: match.penalty ?? 0
+                });
+            }
+        });
+        return [...deduped.values()];
+    }
+
+    function pickBestReferenceMatch(searchTerms, matches) {
+        let ranked = dedupeReferenceMatches(matches)
+            .map((match) => {
+                let score = 0;
+                searchTerms.forEach((term, index) => {
+                    let aliasScores = [match.title, ...(match.aliases ?? [])]
+                        .map(value => scoreReferenceTitleMatch(term, value))
+                        .filter(value => 0 < value);
+                    if (aliasScores.length === 0) {
+                        return;
+                    }
+                    let candidateScore = Math.max(...aliasScores) - (index * 0.01) - (match.penalty ?? 0);
+                    score = Math.max(score, candidateScore);
+                });
+                return Object.assign({}, match, {matchScore: score});
+            })
+            .sort((left, right) => right.matchScore - left.matchScore);
+        let bestMatch = ranked[0] ?? null;
+        return (bestMatch == null) || (bestMatch.matchScore < 0.5) ? null : bestMatch;
+    }
+
+    class ReferenceLookupErrorHandler extends FetchErrorHandler {
+        onFetchError(url, error) {
+            return Promise.reject(new Error(error?.message ?? String(error)));
+        }
+
+        onResponseError(url, wrapOptions, response, errorMessage) {
+            return Promise.reject(new Error(errorMessage ?? `${response.status}`));
+        }
+    }
+
+    async function fetchReferenceHtml(url) {
+        await HttpClient.setPartitionCookies(url);
+        let response;
+        try {
+            response = await fetch(url, HttpClient.makeOptions());
+        } catch (error) {
+            return new ReferenceLookupErrorHandler().onFetchError(url, error);
+        }
+        if (!response.ok) {
+            return new ReferenceLookupErrorHandler().onResponseError(url, {}, response);
+        }
+        let html = new DOMParser().parseFromString(await response.text(), "text/html");
+        util.setBaseTag(response.url, html);
+        return html;
+    }
+
+    async function fetchReferenceJson(url) {
+        await HttpClient.setPartitionCookies(url);
+        let response;
+        try {
+            response = await fetch(url, HttpClient.makeOptions());
+        } catch (error) {
+            return new ReferenceLookupErrorHandler().onFetchError(url, error);
+        }
+        if (!response.ok) {
+            return new ReferenceLookupErrorHandler().onResponseError(url, {}, response);
+        }
+        return response.json();
+    }
+
+    function isInteractiveChallengeDom(dom) {
+        let title = dom?.querySelector("title")?.textContent?.toLocaleLowerCase() ?? "";
+        let bodyText = dom?.body?.textContent?.toLocaleLowerCase() ?? "";
+        return title.includes("just a moment")
+            || bodyText.includes("enable javascript and cookies to continue");
+    }
+
+    function collectReferenceMatchesFromAnchors(dom, baseUrl, hrefPattern) {
+        let matches = [];
+        [...dom.querySelectorAll("a[href]")].forEach((link) => {
+            let href = link.getAttribute("href");
+            if (util.isNullOrEmpty(href)) {
+                return;
+            }
+            let absoluteUrl = util.resolveRelativeUrl(baseUrl, href);
+            if (!hrefPattern.test(new URL(absoluteUrl).pathname)) {
+                return;
+            }
+            let title = link.getAttribute("title")?.trim()
+                || link.textContent?.trim()
+                || link.querySelector("img")?.getAttribute("alt")?.trim()
+                || link.closest("article, li, div")?.textContent?.trim()
+                || "";
+            title = title
+                .split("\n")
+                .map(line => line.trim())
+                .find(line => !util.isNullOrEmpty(line))
+                ?? "";
+            matches.push({url: absoluteUrl, title: title});
+        });
+        return dedupeReferenceMatches(matches);
+    }
+
+    async function searchWebnovelReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let searchUrl = `https://www.webnovel.com/search?keywords=${encodeURIComponent(searchTerm)}`;
+            let dom = await fetchReferenceHtml(searchUrl);
+            if (isInteractiveChallengeDom(dom)) {
+                throw new Error("automatic search is blocked by an interactive browser challenge");
+            }
+            let bestMatch = pickBestReferenceMatch(
+                searchTerms,
+                collectReferenceMatchesFromAnchors(dom, searchUrl, /\/book\/(?:.*?_)?\d+\b/i)
+            );
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
+    async function searchWuxiaworldReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let searchUrl = `https://www.wuxiaworld.com/search?query=${encodeURIComponent(searchTerm)}`;
+            let dom = await fetchReferenceHtml(searchUrl);
+            let bestMatch = pickBestReferenceMatch(
+                searchTerms,
+                collectReferenceMatchesFromAnchors(dom, searchUrl, /\/novel\//i)
+            );
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
+    function collectKakuyomuReferenceMatches(dom) {
+        let script = dom.querySelector("script#__NEXT_DATA__")?.textContent;
+        if (util.isNullOrEmpty(script)) {
+            return [];
+        }
+        let apolloState = JSON.parse(script)?.props?.pageProps?.__APOLLO_STATE__ ?? {};
+        return dedupeReferenceMatches(
+            Object.values(apolloState)
+                .filter(entry => entry?.__typename === "Work")
+                .map(entry => ({
+                    url: `https://kakuyomu.jp/works/${entry.id}`,
+                    title: entry.title,
+                    aliases: [entry.alternateTitle, entry.catchphrase],
+                }))
+        );
+    }
+
+    async function searchKakuyomuReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let searchUrl = `https://kakuyomu.jp/search?q=${encodeURIComponent(searchTerm)}`;
+            let dom = await fetchReferenceHtml(searchUrl);
+            let bestMatch = pickBestReferenceMatch(searchTerms, collectKakuyomuReferenceMatches(dom));
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
+    async function searchSyosetuReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let apiUrl = `https://api.syosetu.com/novelapi/api/?out=json&lim=20&word=${encodeURIComponent(searchTerm)}`;
+            let data = await fetchReferenceJson(apiUrl);
+            let matches = Array.isArray(data)
+                ? data.slice(1).map(item => ({
+                    url: `https://ncode.syosetu.com/${item.ncode?.toLocaleLowerCase()}/`,
+                    title: item.title,
+                }))
+                : [];
+            let bestMatch = pickBestReferenceMatch(searchTerms, matches);
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
+    async function searchBakaTsukiReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let apiUrl = `https://www.baka-tsuki.org/project/api.php?action=query&list=search&format=json&srsearch=${encodeURIComponent(searchTerm)}`;
+            let data = await fetchReferenceJson(apiUrl);
+            let matches = (data?.query?.search ?? []).map(item => ({
+                url: `https://www.baka-tsuki.org/project/index.php?title=${encodeURIComponent(item.title)}`,
+                title: item.title,
+                penalty: item.title.includes(":") ? 0.08 : 0
+            }));
+            let bestMatch = pickBestReferenceMatch(searchTerms, matches);
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
+    async function searchReferenceGroupingSourceByHost(host, searchTerms) {
+        switch (host) {
+            case "webnovel.com":
+                return searchWebnovelReferenceSource(searchTerms);
+            case "wuxiaworld.com":
+                return searchWuxiaworldReferenceSource(searchTerms);
+            case "kakuyomu.jp":
+                return searchKakuyomuReferenceSource(searchTerms);
+            case "syosetu.com":
+                return searchSyosetuReferenceSource(searchTerms);
+            case "baka-tsuki.org":
+                return searchBakaTsukiReferenceSource(searchTerms);
+            default:
+                throw new Error("automatic lookup is not available for this site");
+        }
+    }
+
+    function describeReferenceGroupingSource(source) {
+        return `${source.storyLabel} (${source.host}, ${source.mappedGroups.length} groups)`;
+    }
+
+    function updateReferenceGroupingSourceSelect(selectedValue = null) {
+        let select = getReferenceGroupingSourceSelect();
+        if (select == null) {
+            return;
+        }
+
+        let currentValue = selectedValue ?? select.value ?? "current";
+        util.removeElements([...select.options]);
+        select.add(new Option("Current site groups", "current"));
+        referenceGroupingSources.forEach((source) => {
+            select.add(new Option(describeReferenceGroupingSource(source), source.id));
+        });
+
+        let hasCurrentValue = [...select.options].some(option => option.value === currentValue);
+        select.value = hasCurrentValue ? currentValue : "current";
+        select.disabled = (select.options.length <= 1);
+    }
+
+    function clearReferenceGroupingSources(options = {}) {
+        referenceGroupingAnalysisSequence++;
+        referenceGroupingSources = [];
+        referenceGroupingSourceSequence = 0;
+        parser?.clearReferenceChapterGroups?.();
+        updateReferenceGroupingSourceSelect("current");
+        if (!options.preserveStatus) {
+            setReferenceGroupingStatus("");
+        }
+        if (!options.preserveSiteSelection) {
+            setSelectedReferenceSiteHosts(reliableReferenceSites);
+        }
+    }
+
+    function hasUsableReferenceGroups(groups) {
+        if (!Array.isArray(groups) || (groups.length === 0)) {
+            return false;
+        }
+        if (1 < groups.length) {
+            return true;
+        }
+        return ["volume", "book", "tome"].includes(groups[0].type)
+            && (groups[0].source !== "manual_range");
+    }
+
+    function hasNativeVolumeMarkers(groups) {
+        return Array.isArray(groups)
+            && groups.some(group => ["volume", "book", "tome"].includes(group.type));
+    }
+
+    function shouldAutoDetectReferenceGroups() {
+        return (parser != null)
+            && (readSelectedReferenceSiteHostsFromUi().size !== 0)
+            && !hasNativeVolumeMarkers(parser.getNativeChapterGroups())
+            && (buildReferenceSearchTitleCandidates().length !== 0);
+    }
+
+    function scheduleAutomaticReferenceGroupingAnalysis(options = {}) {
+        if (referenceGroupingAutoAnalyzeTimer != null) {
+            window.clearTimeout(referenceGroupingAutoAnalyzeTimer);
+            referenceGroupingAutoAnalyzeTimer = null;
+        }
+        if (!options.force && !shouldAutoDetectReferenceGroups()) {
+            return;
+        }
+        referenceGroupingAutoAnalyzeTimer = window.setTimeout(() => {
+            referenceGroupingAutoAnalyzeTimer = null;
+            analyzeReferenceGroupingSources({automatic: true});
+        }, options.immediate ? 0 : 220);
+    }
+
+    async function analyzeReferenceGroupingSourceUrl(url, sourceMetadata = {}) {
+        let dom = await fetchReferenceHtml(url);
+        if (isInteractiveChallengeDom(dom)) {
+            throw new Error("interactive browser verification is required");
+        }
+        util.setBaseTag(url, dom);
+
+        let referenceParser = parserFactory.fetch(url, dom);
+        let disabledMessage = referenceParser?.disabled?.();
+        if (disabledMessage != null) {
+            throw new Error(disabledMessage);
+        }
+        referenceParser.onUserPreferencesUpdate(userPreferences);
+        referenceParser.state.chapterListUrl = url;
+
+        let chapters = await referenceParser.getChapterUrls(dom);
+        chapters = referenceParser.cleanWebPageUrls(chapters);
+        chapters?.forEach(chapter => chapter.title = chapter.title?.trim());
+        referenceParser.setPagesToFetch(chapters);
+
+        let referenceGroups = referenceParser.getNativeChapterGroups();
+        let mappedGroups = util.mapReferenceChapterGroupsToChapters(
+            referenceGroups,
+            [...parser.getPagesToFetch().values()]
+        );
+        if (!hasUsableReferenceGroups(mappedGroups)) {
+            return null;
+        }
+
+        let host = util.extractHostName(url);
+        let storyLabel = sourceMetadata.storyLabel
+            ?? referenceParser.extractTitle?.(dom)?.trim()
+            ?? host;
+        let storyCoverUrl = null;
+        try {
+            storyCoverUrl = referenceParser.findCoverImageUrl?.(dom) ?? null;
+        } catch (error) {
+            storyCoverUrl = null;
+        }
+        return {
+            id: `reference-group-source-${++referenceGroupingSourceSequence}`,
+            url: url,
+            host: host,
+            storyLabel: storyLabel,
+            storyCoverUrl: storyCoverUrl,
+            referenceGroups: referenceGroups,
+            mappedGroups: mappedGroups
+        };
+    }
+
+    async function applyReferenceGroupingSource(sourceId) {
+        if (parser == null) {
+            return;
+        }
+        if (util.isNullOrEmpty(sourceId) || (sourceId === "current")) {
+            parser.clearReferenceChapterGroups();
+            setReferenceGroupingStatus("Using current site groups.", "info");
+            return;
+        }
+
+        let source = referenceGroupingSources.find(candidate => candidate.id === sourceId);
+        if (source == null) {
+            parser.clearReferenceChapterGroups();
+            setReferenceGroupingStatus("The selected reference site could not be found.", "error");
+            updateReferenceGroupingSourceSelect("current");
+            return;
+        }
+
+        parser.setReferenceChapterGroups(source.referenceGroups, {
+            id: source.id,
+            label: describeReferenceGroupingSource(source),
+            url: source.url,
+            host: source.host,
+            storyCoverUrl: source.storyCoverUrl ?? null
+        });
+
+        let mappedGroups = parser.getReferenceChapterGroups();
+        if (mappedGroups.length === 0) {
+            setReferenceGroupingStatus(
+                `The selected reference site (${source.storyLabel}) did not match the current chapter list.`,
+                "error"
+            );
+            return;
+        }
+
+        if (util.isNullOrEmpty(CoverImageUI.getCoverImageUrl()) && !util.isNullOrEmpty(source.storyCoverUrl)) {
+            CoverImageUI.setCoverImageUrl(source.storyCoverUrl);
+        }
+        syncChapterGroupingModeWithAvailableGroups(mappedGroups);
+        setReferenceGroupingStatus(
+            `Using groups from ${source.storyLabel} (${source.host}).`,
+            "success"
+        );
+    }
+
+    async function analyzeReferenceGroupingSources(options = {}) {
+        let analysisSequence = ++referenceGroupingAnalysisSequence;
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let selectedHosts = [...readSelectedReferenceSiteHostsFromUi()];
+        if (selectedHosts.length === 0) {
+            parser.clearReferenceChapterGroups();
+            updateReferenceGroupingSourceSelect("current");
+            setReferenceGroupingStatus("No reference site selected.", "info");
+            return;
+        }
+
+        let searchTerms = buildReferenceSearchTitleCandidates();
+        if (searchTerms.length === 0) {
+            setReferenceGroupingStatus("No usable story title was found for automatic reference lookup.", "error");
+            return;
+        }
+
+        if (options.automatic === true && !options.force && !shouldAutoDetectReferenceGroups()) {
+            return;
+        }
+
+        let analyzeButton = document.getElementById("analyzeReferenceSitesButton");
+        if (analyzeButton != null) {
+            analyzeButton.disabled = true;
+        }
+        setReferenceGroupingStatus(`Searching ${selectedHosts.length} reference site${selectedHosts.length === 1 ? "" : "s"}...`, "info");
+
+        let sources = [];
+        let failures = [];
+
+        try {
+            for (let host of selectedHosts) {
+                try {
+                    let match = await searchReferenceGroupingSourceByHost(host, searchTerms);
+                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                        return;
+                    }
+                    if (match == null) {
+                        failures.push(`${referenceSiteLabel(host)}: no matching story found`);
+                        continue;
+                    }
+                    let source = await analyzeReferenceGroupingSourceUrl(match.url, {
+                        storyLabel: match.title
+                    });
+                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                        return;
+                    }
+                    if (source == null) {
+                        failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
+                        continue;
+                    }
+                    sources.push(source);
+                } catch (error) {
+                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                        return;
+                    }
+                    failures.push(`${referenceSiteLabel(host)}: ${error.message}`);
+                }
+            }
+        } finally {
+            if (analyzeButton != null) {
+                analyzeButton.disabled = false;
+            }
+        }
+
+        if (analysisSequence !== referenceGroupingAnalysisSequence) {
+            return;
+        }
+
+        referenceGroupingSources = sources;
+        updateReferenceGroupingSourceSelect(sources[0]?.id ?? "current");
+
+        if (sources.length === 0) {
+            parser.clearReferenceChapterGroups();
+            setReferenceGroupingStatus(
+                failures.length === 0
+                    ? "No usable reference site groups were found."
+                    : `No usable reference site groups were found. ${failures[0]}`,
+                "error"
+            );
+            return;
+        }
+
+        await applyReferenceGroupingSource(sources[0].id);
+        if ((0 < failures.length) && (0 < parser.getReferenceChapterGroups().length)) {
+            setReferenceGroupingStatus(
+                `Loaded ${sources.length} reference site${sources.length === 1 ? "" : "s"}. ${failures.length} skipped. Active source: ${sources[0].storyLabel}.`,
+                "success"
+            );
+        }
+    }
 
     // register listener that is invoked when script injected into HTML sends its results
     function addMessageListener() {
@@ -72,6 +839,7 @@ var main = (function() {
     }
 
     function populateMetaInfo(metaInfo) {
+        normalizeMetaInfoFileName(metaInfo);
         setUiFieldToValue("startingUrlInput", metaInfo.uuid);
         setUiFieldToValue("titleInput", metaInfo.title);
         setUiFieldToValue("authorInput", metaInfo.author);
@@ -88,6 +856,7 @@ var main = (function() {
 
         setUiFieldToValue("translatorInput", metaInfo.translator);
         setUiFieldToValue("fileAuthorAsInput", metaInfo.fileAuthorAs);
+        updateDownloadFormatUi();
     }
 
     function setUiFieldToValue(elementId, value) {
@@ -117,8 +886,141 @@ var main = (function() {
         metaInfo.translator = getValueFromUiField("translatorInput");
         metaInfo.fileAuthorAs = getValueFromUiField("fileAuthorAsInput");
         metaInfo.styleSheet = userPreferences.styleSheet.value;
+        normalizeMetaInfoFileName(metaInfo);
 
         return metaInfo;
+    }
+
+    function normalizeMetaInfoFileName(metaInfo) {
+        if (metaInfo == null) {
+            return;
+        }
+        let fallback = Download.sanitizeFileStem(metaInfo.title, "download");
+        if (util.isNullOrEmpty(metaInfo.fileName) || Download.looksLikeOpaqueFileStem(metaInfo.fileName)) {
+            metaInfo.fileName = fallback;
+            return;
+        }
+        metaInfo.fileName = Download.sanitizeFileStem(metaInfo.fileName, fallback);
+    }
+
+    function getSelectedDownloadFormat() {
+        return Download.outputFormat();
+    }
+
+    function isEpubDownloadFormat() {
+        return getSelectedDownloadFormat() === "epub";
+    }
+
+    function applyNormalProgressActionLabels() {
+        let format = getSelectedDownloadFormat();
+        let formatLabel = format.toUpperCase();
+        let unsupportedMessage = (format === "mobi")
+            ? "MOBI export requires an external converter and is not available in the extension runtime yet."
+            : "";
+
+        let packButton = getPackEpubButton();
+        if (packButton != null) {
+            packButton.textContent = `Download ${formatLabel}`;
+            packButton.title = unsupportedMessage;
+        }
+
+        let libraryButton = document.getElementById("LibAddToLibrary");
+        if (libraryButton != null) {
+            libraryButton.textContent = UIText.Common.addToLibrary || "Add to Library";
+            libraryButton.disabled = !isEpubDownloadFormat();
+            libraryButton.title = isEpubDownloadFormat()
+                ? ""
+                : "Library is available for EPUB only.";
+        }
+
+        let pauseButton = document.getElementById("LibPauseToLibrary");
+        if (pauseButton != null) {
+            pauseButton.textContent = pauseActionLabel();
+            pauseButton.title = "Pause current download.";
+        }
+
+        return unsupportedMessage;
+    }
+
+    function syncProgressActionButtons() {
+        let packButton = getPackEpubButton();
+        let addButton = document.getElementById("LibAddToLibrary");
+        let pauseButton = document.getElementById("LibPauseToLibrary");
+        if ((packButton == null) || (addButton == null) || (pauseButton == null)) {
+            return;
+        }
+
+        applyNormalProgressActionLabels();
+        pauseButton.style.gridColumn = "";
+        pauseButton.style.gridRow = "";
+        pauseButton.hidden = true;
+        pauseButton.disabled = true;
+        packButton.hidden = false;
+        addButton.hidden = false;
+
+        if (storyDownloadSession?.status === "paused") {
+            packButton.disabled = false;
+            packButton.textContent = resumeActionLabel();
+            packButton.title = "Resume the paused download.";
+            addButton.disabled = false;
+            addButton.textContent = UIText.Common.cancel || "Cancel";
+            addButton.title = "Cancel the paused download.";
+            return;
+        }
+
+        if (storyDownloadSession?.status === "running") {
+            pauseButton.hidden = false;
+            pauseButton.disabled = false;
+            pauseButton.style.gridRow = "1";
+            if (storyDownloadSession.actionMode === "library") {
+                addButton.hidden = true;
+                packButton.disabled = true;
+                pauseButton.style.gridColumn = "3";
+            } else {
+                packButton.hidden = true;
+                addButton.disabled = true;
+                pauseButton.style.gridColumn = "1";
+            }
+            return;
+        }
+
+        if (progressActionState.isBusy) {
+            pauseButton.hidden = false;
+            pauseButton.disabled = false;
+            pauseButton.style.gridRow = "1";
+            if (progressActionState.actionMode === "library") {
+                addButton.hidden = true;
+                packButton.disabled = true;
+                pauseButton.style.gridColumn = "3";
+            } else {
+                packButton.hidden = true;
+                addButton.disabled = true;
+                pauseButton.style.gridColumn = "1";
+            }
+        }
+    }
+
+    function updateDownloadFormatUi() {
+        let unsupportedMessage = applyNormalProgressActionLabels();
+        let formatSelect = document.getElementById("downloadFormatSelect");
+        if (formatSelect != null) {
+            formatSelect.disabled = (storyDownloadSession?.status === "running") || (storyDownloadSession?.status === "paused");
+        }
+
+        let downloadMarkedGroupsButton = document.getElementById("downloadMarkedChapterGroupsButton");
+        if (downloadMarkedGroupsButton != null) {
+            downloadMarkedGroupsButton.textContent = "Download selected";
+            downloadMarkedGroupsButton.title = unsupportedMessage;
+        }
+
+        let downloadAllGroupsButton = document.getElementById("downloadAllChapterGroupsButton");
+        if (downloadAllGroupsButton != null) {
+            downloadAllGroupsButton.textContent = "Download all";
+            downloadAllGroupsButton.title = unsupportedMessage;
+        }
+
+        parser?.state?.chapterUrlsUI?.syncMarkedChapterGroupsUi?.();
+        syncProgressActionButtons();
     }
 
     function getValueFromUiField(elementId) {
@@ -130,75 +1032,781 @@ var main = (function() {
         }
     }
 
+    function getSelectedPages() {
+        if (parser == null) {
+            return [];
+        }
+        return [...parser.getPagesToFetch().values()].filter(page => page.isIncludeable);
+    }
+
+    function getGlobalChapterIndexMap() {
+        let orderMap = new Map();
+        if (parser != null) {
+            [...parser.getPagesToFetch().values()].forEach((page, index) => {
+                orderMap.set(page.sourceUrl, index + 1);
+            });
+        }
+        return orderMap;
+    }
+
+    function getPackSizeFromUi() {
+        let input = document.getElementById("packSizeInput");
+        if (input == null) {
+            let select = document.getElementById("packSizeSelect");
+            if (select == null) {
+                return 0;
+            }
+            let selectValue = parseInt(select.value, 10);
+            return Number.isFinite(selectValue) && (0 < selectValue) ? selectValue : 0;
+        }
+
+        let rawValue = (input.value || "").trim();
+        if (util.isNullOrEmpty(rawValue)) {
+            return 0;
+        }
+
+        let value = parseInt(rawValue, 10);
+        return Number.isFinite(value) && (0 < value) ? value : 0;
+    }
+
+    function chunkPages(pages, chunkSize) {
+        if ((chunkSize <= 0) || (pages.length <= chunkSize)) {
+            return [pages];
+        }
+        let chunks = [];
+        for (let index = 0; index < pages.length; index += chunkSize) {
+            chunks.push(pages.slice(index, index + chunkSize));
+        }
+        return chunks;
+    }
+
+    function withDownloadFormatSuffix(fileNameWithoutSuffix, suffix) {
+        let base = Download.stripKnownExtension(fileNameWithoutSuffix);
+        return Download.addExtensionForFormat(base + suffix, getSelectedDownloadFormat());
+    }
+
+    function buildBatchFileName(baseFileName, batchIndex, totalBatches, firstChapterIndex, lastChapterIndex, alwaysAddSuffix) {
+        if (!alwaysAddSuffix && (totalBatches === 1)) {
+            return baseFileName;
+        }
+        if (totalBatches === 1) {
+            return withDownloadFormatSuffix(baseFileName, "_chapter_" + firstChapterIndex);
+        }
+        let batchNumber = String(batchIndex + 1).padStart(3, "0");
+        let suffix = "_pack_" + batchNumber + "_" + firstChapterIndex + "-" + lastChapterIndex;
+        return withDownloadFormatSuffix(baseFileName, suffix);
+    }
+
+    function cloneMetaInfo(metaInfo) {
+        return Object.assign(new EpubMetaInfo(), metaInfo);
+    }
+
+    function stripDownloadExtension(fileName) {
+        return Download.stripKnownExtension(fileName);
+    }
+
+    function buildAutomaticGroupFileStem(baseMetaInfo, group) {
+        let storyTitle = baseMetaInfo?.title ?? document.getElementById("titleInput")?.value ?? "download";
+        let groupTitle = util.makeChapterGroupDisplayTitle(group);
+        return Download.sanitizeFileStem(`${storyTitle} - ${groupTitle}`, Download.sanitizeFileStem(storyTitle, "download"));
+    }
+
+    function buildGroupMetaInfo(baseMetaInfo, group) {
+        let metaInfo = cloneMetaInfo(baseMetaInfo);
+        let groupTitle = util.makeChapterGroupDisplayTitle(group);
+        metaInfo.title = `${baseMetaInfo.title} - ${groupTitle}`;
+        metaInfo.fileName = buildAutomaticGroupFileStem(baseMetaInfo, group);
+        if ((metaInfo.seriesName == null) &&
+            ((group.type === "volume") || (group.type === "book")) &&
+            (group.index != null)) {
+            metaInfo.seriesName = baseMetaInfo.title;
+            metaInfo.seriesIndex = group.index;
+        }
+        return metaInfo;
+    }
+
+    function getChapterGroupById(groupId) {
+        if ((parser == null) || util.isNullOrEmpty(groupId)) {
+            return null;
+        }
+        return parser.getChapterGroups().find(group => group.id === groupId) ?? null;
+    }
+
+    function getDownloadablePagesForGroup(group) {
+        if (group == null) {
+            return [];
+        }
+        return group.chapters.filter(page => page.isSelectable !== false);
+    }
+
+    function resolveGroupCoverImageUrl(group) {
+        return group?.coverUrl
+            ?? parser?.getReferenceChapterGroupSource?.()?.storyCoverUrl
+            ?? CoverImageUI.getCoverImageUrl();
+    }
+
+    async function withTemporaryCoverImageUrl(coverImageUrl, callback) {
+        let previousCoverImageUrl = CoverImageUI.getCoverImageUrl();
+        let nextCoverImageUrl = util.isNullOrEmpty(coverImageUrl) ? null : coverImageUrl;
+        let hasChanged = nextCoverImageUrl !== previousCoverImageUrl;
+        if (hasChanged) {
+            CoverImageUI.setCoverImageUrl(nextCoverImageUrl);
+        }
+        try {
+            return await callback();
+        } finally {
+            if (hasChanged) {
+                CoverImageUI.setCoverImageUrl(previousCoverImageUrl);
+            }
+        }
+    }
+
+    async function withTemporaryChapterSelection(pagesToInclude, callback) {
+        let allPages = [...parser.getPagesToFetch().values()];
+        let originalState = allPages.map(page => ({ page: page, isIncludeable: page.isIncludeable }));
+        let includeSet = new Set(pagesToInclude.map(page => page.sourceUrl));
+        allPages.forEach(page => page.isIncludeable = includeSet.has(page.sourceUrl));
+        try {
+            return await callback();
+        } finally {
+            originalState.forEach(state => state.page.isIncludeable = state.isIncludeable);
+        }
+    }
+
+    function ensureSleepControllerReady() {
+        if (util.sleepController.signal.aborted) {
+            util.sleepController = new AbortController();
+        }
+    }
+
+    function getAllChapterPages() {
+        if (parser == null) {
+            return [];
+        }
+        return [...parser.getPagesToFetch().values()];
+    }
+
+    function getPagesForSourceUrls(sourceUrls = []) {
+        let urls = new Set(sourceUrls);
+        return getAllChapterPages().filter(page => urls.has(page.sourceUrl));
+    }
+
+    function clearFetchedChapterData(pages) {
+        if (!Array.isArray(pages) || (pages.length === 0)) {
+            return;
+        }
+
+        pages.forEach((page) => {
+            delete page.rawDom;
+            delete page.error;
+            if (page.row != null) {
+                ChapterUrlsUI.showDownloadState(page.row, ChapterUrlsUI.DOWNLOAD_STATE_NONE);
+            }
+        });
+
+        parser?.imageCollector?.reset?.();
+        parser?.imageCollector?.setCoverImageUrl?.(CoverImageUI.getCoverImageUrl());
+    }
+
+    function createStoryDownloadSession(options) {
+        let session = {
+            status: "idle",
+            parser: parser,
+            actionMode: options.isLibraryAction ? "library" : "pack",
+            isLibraryAction: options.isLibraryAction,
+            metaInfo: options.metaInfo,
+            fileName: options.fileName,
+            overwriteExisting: options.overwriteExisting,
+            backgroundDownload: options.backgroundDownload,
+            fileHandle: options.fileHandle,
+            suppressErrorLog: options.suppressErrorLog === true,
+            sourceUrls: getSelectedPages().map(page => page.sourceUrl),
+            resumeAction: null,
+            cancelAction: null
+        };
+        session.resumeAction = () => runStoryDownloadSession(session, { resume: true });
+        session.cancelAction = () => cancelPausedStoryDownloadSession();
+        return session;
+    }
+
+    function hasPausedStoryDownloadSession() {
+        return storyDownloadSession?.status === "paused";
+    }
+
+    function getStoryDownloadPages(session) {
+        if ((session == null) || (session.parser !== parser)) {
+            return [];
+        }
+        return getPagesForSourceUrls(session.sourceUrls);
+    }
+
+    function cancelPausedStoryDownloadSession() {
+        if (!hasPausedStoryDownloadSession()) {
+            return;
+        }
+        clearFetchedChapterData(getStoryDownloadPages(storyDownloadSession));
+        storyDownloadSession = null;
+        ProgressBar.setMax(1);
+        ProgressBar.setValue(0);
+        updateDownloadFormatUi();
+    }
+
+    function setProgressActionBusy(isBusy, actionMode = "pack") {
+        progressActionState = {
+            isBusy: isBusy,
+            actionMode: actionMode
+        };
+        syncProgressActionButtons();
+    }
+
+    function setBatchUiBusy(isBusy, actionMode = "pack") {
+        window.workInProgress = isBusy;
+        main.getPackEpubButton().disabled = isBusy;
+        ["downloadPacksButton", "downloadMarkedChapterGroupsButton", "downloadAllChapterGroupsButton"]
+            .forEach((elementId) => {
+                let button = document.getElementById(elementId);
+                if (button != null) {
+                    button.disabled = isBusy;
+                }
+            });
+        setProgressActionBusy(isBusy, actionMode);
+    }
+
+    function shouldStopCurrentDownload() {
+        return util.sleepController.signal.aborted;
+    }
+
+    async function downloadBatches(chapterBatches, alwaysAddSuffix) {
+        ensureSleepControllerReady();
+        if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
+            setUiFieldToValue("subjectInput", "");
+            setUiFieldToValue("descriptionInput", "");
+        }
+
+        let overwriteExisting = userPreferences.overwriteExistingEpub.value;
+        let backgroundDownload = userPreferences.noDownloadPopup.value;
+        let metaInfo = metaInfoFromControls();
+        let baseFileName = buildDownloadFileName({
+            preferSuggestedFileName: true,
+            suggestedFileName: metaInfo.fileName,
+            fileName: metaInfo.fileName,
+            title: metaInfo.title
+        });
+        let chapterOrder = getGlobalChapterIndexMap();
+
+        ErrorLog.clearHistory();
+        setBatchUiBusy(true, "pack");
+        ChapterUrlsUI.resetDownloadStateImages();
+
+        try {
+            for (let batchIndex = 0; batchIndex < chapterBatches.length; ++batchIndex) {
+                let batch = chapterBatches[batchIndex];
+                let firstChapterIndex = chapterOrder.get(batch[0].sourceUrl);
+                let lastChapterIndex = chapterOrder.get(batch[batch.length - 1].sourceUrl);
+                let fileName = buildBatchFileName(
+                    baseFileName,
+                    batchIndex,
+                    chapterBatches.length,
+                    firstChapterIndex,
+                    lastChapterIndex,
+                    alwaysAddSuffix
+                );
+                let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+                if (fileHandle === null) {
+                    return;
+                }
+
+                await withTemporaryChapterSelection(batch, async () => {
+                    parser.onStartCollecting();
+                    await parser.fetchContent();
+                    if (shouldStopCurrentDownload()) {
+                        return;
+                    }
+                    let content = await buildDownloadContent(metaInfo);
+                    if (shouldStopCurrentDownload()) {
+                        return;
+                    }
+                    await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                });
+                if (shouldStopCurrentDownload()) {
+                    return;
+                }
+            }
+
+            parser.updateReadingList();
+            ErrorLog.showLogToUser();
+            dumpErrorLogToFile();
+        } catch (err) {
+            if (!util.isAbortError(err)) {
+                ErrorLog.showErrorMessage(err);
+            }
+        } finally {
+            setBatchUiBusy(false, "pack");
+            if (util.sleepController.signal.aborted) {
+                util.sleepController = new AbortController;
+            }
+        }
+    }
+
+    async function downloadChapterGroup() {
+        if (window.workInProgress === true) {
+            return;
+        }
+        ensureSleepControllerReady();
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let group = getChapterGroupById(ChapterUrlsUI.getSelectedChapterGroupId());
+        if (group == null) {
+            ErrorLog.showErrorMessage("No chapter group selected.");
+            return;
+        }
+
+        let pages = getDownloadablePagesForGroup(group);
+        if (pages.length === 0) {
+            ErrorLog.showErrorMessage("No downloadable chapters found for this group.");
+            return;
+        }
+
+        if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
+            setUiFieldToValue("subjectInput", "");
+            setUiFieldToValue("descriptionInput", "");
+        }
+
+        let overwriteExisting = userPreferences.overwriteExistingEpub.value;
+        let backgroundDownload = userPreferences.noDownloadPopup.value;
+        let metaInfo = buildGroupMetaInfo(metaInfoFromControls(), group);
+        let fileName = buildDownloadFileName({
+            preferSuggestedFileName: true,
+            suggestedFileName: metaInfo.fileName,
+            fileName: stripDownloadExtension(metaInfo.fileName),
+            title: metaInfo.title,
+            chaptersCount: group.count,
+            group: group.displayTitle,
+            groupTitle: group.title ?? group.displayTitle,
+            groupRange: group.rangeLabel
+        });
+        let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+        if (fileHandle === null) {
+            return;
+        }
+
+        ErrorLog.clearHistory();
+        setBatchUiBusy(true, "pack");
+        ChapterUrlsUI.resetDownloadStateImages();
+
+        try {
+            await withTemporaryCoverImageUrl(resolveGroupCoverImageUrl(group), async () => {
+                await withTemporaryChapterSelection(pages, async () => {
+                    parser.onStartCollecting();
+                    await parser.fetchContent();
+                    if (shouldStopCurrentDownload()) {
+                        return;
+                    }
+                    let content = await buildDownloadContent(metaInfo);
+                    if (shouldStopCurrentDownload()) {
+                        return;
+                    }
+                    await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                });
+            });
+
+            parser.updateReadingList();
+            ErrorLog.showLogToUser();
+            dumpErrorLogToFile();
+        } catch (err) {
+            if (!util.isAbortError(err)) {
+                ErrorLog.showErrorMessage(err);
+            }
+        } finally {
+            setBatchUiBusy(false, "pack");
+            if (util.sleepController.signal.aborted) {
+                util.sleepController = new AbortController;
+            }
+        }
+    }
+
+    async function downloadAllChapterGroups() {
+        if (window.workInProgress === true) {
+            return;
+        }
+        ensureSleepControllerReady();
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let visibleGroupIds = typeof ChapterUrlsUI?.getVisibleChapterGroupIds === "function"
+            ? ChapterUrlsUI.getVisibleChapterGroupIds()
+            : [];
+        let visibleGroupIdSet = new Set(visibleGroupIds);
+        let groups = parser.getChapterGroups()
+            .filter(group => (visibleGroupIdSet.size === 0) || visibleGroupIdSet.has(group.id))
+            .map(group => ({ group: group, pages: getDownloadablePagesForGroup(group) }))
+            .filter(entry => 0 < entry.pages.length);
+
+        if (groups.length === 0) {
+            ErrorLog.showErrorMessage("No downloadable chapter groups found.");
+            return;
+        }
+
+        if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
+            setUiFieldToValue("subjectInput", "");
+            setUiFieldToValue("descriptionInput", "");
+        }
+
+        let overwriteExisting = userPreferences.overwriteExistingEpub.value;
+        let backgroundDownload = userPreferences.noDownloadPopup.value;
+        let baseMetaInfo = metaInfoFromControls();
+
+        ErrorLog.clearHistory();
+        setBatchUiBusy(true, "pack");
+        ChapterUrlsUI.resetDownloadStateImages();
+
+        try {
+            for (let entry of groups) {
+                let group = entry.group;
+                let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
+                let fileName = buildDownloadFileName({
+                    preferSuggestedFileName: true,
+                    suggestedFileName: metaInfo.fileName,
+                    fileName: stripDownloadExtension(metaInfo.fileName),
+                    title: metaInfo.title,
+                    chaptersCount: group.count,
+                    group: group.displayTitle,
+                    groupTitle: group.title ?? group.displayTitle,
+                    groupRange: group.rangeLabel
+                });
+
+                await withTemporaryCoverImageUrl(resolveGroupCoverImageUrl(group), async () => {
+                    await withTemporaryChapterSelection(entry.pages, async () => {
+                        parser.onStartCollecting();
+                        await parser.fetchContent();
+                        if (shouldStopCurrentDownload()) {
+                            return;
+                        }
+                        let content = await buildDownloadContent(metaInfo);
+                        if (shouldStopCurrentDownload()) {
+                            return;
+                        }
+                        await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                    });
+                });
+                if (shouldStopCurrentDownload()) {
+                    return;
+                }
+            }
+
+            parser.updateReadingList();
+            ErrorLog.showLogToUser();
+            dumpErrorLogToFile();
+        } catch (err) {
+            if (!util.isAbortError(err)) {
+                ErrorLog.showErrorMessage(err);
+            }
+        } finally {
+            setBatchUiBusy(false, "pack");
+            if (util.sleepController.signal.aborted) {
+                util.sleepController = new AbortController;
+            }
+        }
+    }
+
+    async function downloadMarkedChapterGroups() {
+        if (window.workInProgress === true) {
+            return;
+        }
+        ensureSleepControllerReady();
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let markedGroupIds = parser.state.chapterUrlsUI?.getMarkedChapterGroupIds?.() ?? [];
+        let markedGroupIdSet = new Set(markedGroupIds);
+        let groups = parser.getChapterGroups()
+            .filter(group => markedGroupIdSet.has(group.id))
+            .map(group => ({ group: group, pages: getDownloadablePagesForGroup(group) }))
+            .filter(entry => 0 < entry.pages.length);
+
+        if (groups.length === 0) {
+            ErrorLog.showErrorMessage("No selected chapter groups found.");
+            return;
+        }
+
+        if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
+            setUiFieldToValue("subjectInput", "");
+            setUiFieldToValue("descriptionInput", "");
+        }
+
+        let overwriteExisting = userPreferences.overwriteExistingEpub.value;
+        let backgroundDownload = userPreferences.noDownloadPopup.value;
+        let baseMetaInfo = metaInfoFromControls();
+
+        ErrorLog.clearHistory();
+        setBatchUiBusy(true, "pack");
+        ChapterUrlsUI.resetDownloadStateImages();
+
+        try {
+            for (let entry of groups) {
+                let group = entry.group;
+                let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
+                let fileName = buildDownloadFileName({
+                    preferSuggestedFileName: true,
+                    suggestedFileName: metaInfo.fileName,
+                    fileName: stripDownloadExtension(metaInfo.fileName),
+                    title: metaInfo.title,
+                    chaptersCount: group.count,
+                    group: group.displayTitle,
+                    groupTitle: group.title ?? group.displayTitle,
+                    groupRange: group.rangeLabel
+                });
+
+                await withTemporaryCoverImageUrl(resolveGroupCoverImageUrl(group), async () => {
+                    await withTemporaryChapterSelection(entry.pages, async () => {
+                        parser.onStartCollecting();
+                        await parser.fetchContent();
+                        if (shouldStopCurrentDownload()) {
+                            return;
+                        }
+                        let content = await buildDownloadContent(metaInfo);
+                        if (shouldStopCurrentDownload()) {
+                            return;
+                        }
+                        await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                    });
+                });
+                if (shouldStopCurrentDownload()) {
+                    return;
+                }
+            }
+
+            parser.updateReadingList();
+            ErrorLog.showLogToUser();
+            dumpErrorLogToFile();
+        } catch (err) {
+            if (!util.isAbortError(err)) {
+                ErrorLog.showErrorMessage(err);
+            }
+        } finally {
+            setBatchUiBusy(false, "pack");
+            if (util.sleepController.signal.aborted) {
+                util.sleepController = new AbortController;
+            }
+        }
+    }
+
+    async function downloadPacks() {
+        if (window.workInProgress === true) {
+            return;
+        }
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let selectedPages = getSelectedPages();
+        if (selectedPages.length === 0) {
+            ErrorLog.showErrorMessage("No chapters selected.");
+            return;
+        }
+
+        let chunkSize = getPackSizeFromUi();
+        let batches = chunkPages(selectedPages, chunkSize);
+        await downloadBatches(batches, batches.length !== 1);
+    }
+
+    async function downloadSingleChapterByUrl(sourceUrl) {
+        if (window.workInProgress === true) {
+            return;
+        }
+        ensureSleepControllerReady();
+        if (parser == null) {
+            ErrorLog.showErrorMessage(UIText.Error.noParserFound);
+            return;
+        }
+
+        let chapter = [...parser.getPagesToFetch().values()].find(page => page.sourceUrl === sourceUrl);
+        if (chapter == null) {
+            ErrorLog.showErrorMessage("Chapter not found.");
+            return;
+        }
+        await downloadBatches([[chapter]], true);
+    }
+
+    async function runStoryDownloadSession(session, { resume = false } = {}) {
+        if ((session == null) || (session.parser !== parser)) {
+            storyDownloadSession = null;
+            updateDownloadFormatUi();
+            ErrorLog.showErrorMessage("The paused download is no longer available. Start it again.");
+            return;
+        }
+
+        ensureSleepControllerReady();
+
+        let pages = getStoryDownloadPages(session);
+        if (pages.length === 0) {
+            storyDownloadSession = null;
+            updateDownloadFormatUi();
+            ErrorLog.showErrorMessage("No chapters selected for this download.");
+            return;
+        }
+
+        if (!resume) {
+            clearFetchedChapterData(pages);
+            ChapterUrlsUI.resetDownloadStateImages();
+            ErrorLog.clearHistory();
+        }
+
+        let paused = false;
+        storyDownloadSession = session;
+        storyDownloadSession.status = "running";
+        window.workInProgress = true;
+        main.getPackEpubButton().disabled = true;
+        setProgressActionBusy(true, session.actionMode);
+
+        try {
+            await withTemporaryChapterSelection(pages, async () => {
+                parser.onStartCollecting();
+                await parser.fetchContent();
+                if (shouldStopCurrentDownload()) {
+                    paused = true;
+                    return;
+                }
+
+                let content = await buildDownloadContent(session.metaInfo);
+                if (shouldStopCurrentDownload()) {
+                    paused = true;
+                    return;
+                }
+
+                if (session.isLibraryAction) {
+                    await library.LibAddToLibrary(
+                        content,
+                        session.fileName,
+                        document.getElementById("startingUrlInput").value,
+                        session.overwriteExisting,
+                        session.backgroundDownload
+                    );
+                } else {
+                    await saveDownloadedContent(
+                        content,
+                        session.fileName,
+                        session.overwriteExisting,
+                        session.backgroundDownload,
+                        session.fileHandle
+                    );
+                }
+            });
+
+            if (paused || shouldStopCurrentDownload()) {
+                paused = true;
+                return;
+            }
+
+            parser.updateReadingList();
+            if (!session.suppressErrorLog) {
+                ErrorLog.showLogToUser();
+                dumpErrorLogToFile();
+            }
+        } catch (err) {
+            if (util.isAbortError(err)) {
+                paused = true;
+                return;
+            }
+            storyDownloadSession = null;
+            clearFetchedChapterData(pages);
+            ErrorLog.showErrorMessage(err);
+        } finally {
+            window.workInProgress = false;
+            main.getPackEpubButton().disabled = false;
+            if (paused) {
+                storyDownloadSession = session;
+                storyDownloadSession.status = "paused";
+            } else if (storyDownloadSession === session) {
+                storyDownloadSession = null;
+            }
+            setProgressActionBusy(false, session.actionMode);
+            if (util.sleepController.signal.aborted) {
+                util.sleepController = new AbortController();
+            }
+            updateDownloadFormatUi();
+        }
+    }
+
     async function fetchContentAndPackEpub() {
         let libclick = this;
+        let isLibraryAction = (libclick.dataset.libclick === "yes");
+        ensureSleepControllerReady();
+        if (isLibraryAction && !isEpubDownloadFormat()) {
+            ErrorLog.showErrorMessage("Library is available for EPUB only.");
+            return;
+        }
         if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
             setUiFieldToValue("subjectInput", "");
             setUiFieldToValue("descriptionInput", "");
         }
         let metaInfo = metaInfoFromControls();
 
-        if ("yes" == libclick.dataset.libclick) {
+        if (isLibraryAction) {
             if (document.getElementById("chaptersPageInChapterListCheckbox").checked) {
                 ErrorLog.showErrorMessage(UIText.Error.errorAddToLibraryLibraryAddPageWithChapters);
                 return;
             }
         }
 
-        ChapterUrlsUI.limitNumOfChapterS(userPreferences.maxChaptersPerEpub.value);
-        ChapterUrlsUI.resetDownloadStateImages();
-        ErrorLog.clearHistory();
-        window.workInProgress = true;
-        main.getPackEpubButton().disabled = true;
-        replaceLibAddToLibrary();
-        parser.onStartCollecting();
-        await parser.fetchContent();
-        let content = await packEpub(metaInfo);
-        // Enable button here.  If user cancels save dialog
-        // the promise never returns
-        window.workInProgress = false;
-        main.getPackEpubButton().disabled = false;
-        replaceLibAddToLibrary();
         let overwriteExisting = userPreferences.overwriteExistingEpub.value;
         let backgroundDownload = userPreferences.noDownloadPopup.value;
-        let fileName = Download.CustomFilename();
-        if ("yes" == libclick.dataset.libclick || util.sleepController.signal.aborted) {
-            await library.LibAddToLibrary(content, fileName, document.getElementById("startingUrlInput").value, overwriteExisting, backgroundDownload);
-        } else {
-            await Download.save(content, fileName, overwriteExisting, backgroundDownload);
-        }
-        try {
-            parser.updateReadingList();
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-                resetUI();
-            }
-            if (libclick.dataset.libsuppressErrorLog == true) {
+        let fileName = buildDownloadFileName({
+            preferSuggestedFileName: true,
+            suggestedFileName: metaInfo.fileName,
+            fileName: metaInfo.fileName,
+            title: metaInfo.title
+        });
+        let fileHandle = undefined;
+        if ("yes" != libclick.dataset.libclick) {
+            fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+            if (fileHandle === null) {
                 return;
-            } else {
-                ErrorLog.showLogToUser();
-                dumpErrorLogToFile();
             }
-        } catch (err) {
-            window.workInProgress = false;
-            main.getPackEpubButton().disabled = false;
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-            }
-            replaceLibAddToLibrary();
-            ErrorLog.showErrorMessage(err);
         }
-    }
 
-    function replaceLibAddToLibrary() {
-        let el = document.getElementById("LibAddToLibrary");
-        el.hidden = !el.hidden;
-        el = document.getElementById("LibPauseToLibrary");
-        el.hidden = !el.hidden;
+        ChapterUrlsUI.limitNumOfChapterS(userPreferences.maxChaptersPerEpub.value);
+        await runStoryDownloadSession(createStoryDownloadSession({
+            isLibraryAction: isLibraryAction,
+            metaInfo: metaInfo,
+            fileName: fileName,
+            overwriteExisting: overwriteExisting,
+            backgroundDownload: backgroundDownload,
+            fileHandle: fileHandle,
+            suppressErrorLog: (libclick.dataset.libsuppressErrorLog == true)
+        }));
     }
 
     function pauseToLibrary() {
+        let pauseButton = document.getElementById("LibPauseToLibrary");
+        if (pauseButton != null) {
+            pauseButton.disabled = true;
+        }
         util.sleepController.abort();
+    }
+
+    async function onPackEpubButtonClick() {
+        if (hasPausedStoryDownloadSession()) {
+            await storyDownloadSession.resumeAction?.();
+            return;
+        }
+        await fetchContentAndPackEpub.call(getPackEpubButton());
+    }
+
+    async function onLibraryActionButtonClick() {
+        if (hasPausedStoryDownloadSession()) {
+            storyDownloadSession.cancelAction?.();
+            return;
+        }
+        await fetchContentAndPackEpub.call(document.getElementById("LibAddToLibrary"));
     }
 
     function epubVersionFromPreferences() {
@@ -206,10 +1814,327 @@ var main = (function() {
             EpubPacker.EPUB_VERSION_3 : EpubPacker.EPUB_VERSION_2;
     }
 
-    function packEpub(metaInfo) {
+    function packEpub(metaInfo, itemSupplier = parser.epubItemSupplier()) {
         let epubVersion = epubVersionFromPreferences();
         let epub = new EpubPacker(metaInfo, epubVersion);
-        return epub.assemble(parser.epubItemSupplier());
+        return epub.assemble(itemSupplier);
+    }
+
+    function coverImageDataUrl(itemSupplier) {
+        let coverImageInfo = itemSupplier?.coverImageInfo ?? null;
+        if ((coverImageInfo == null) || (coverImageInfo.arraybuffer == null) || util.isNullOrEmpty(coverImageInfo.mediaType)) {
+            return resolveGroupCoverImageUrl(null);
+        }
+        return `data:${coverImageInfo.mediaType};base64,${coverImageInfo.getBase64(0)}`;
+    }
+
+    function sanitizePdfText(text) {
+        return (text ?? "")
+            .replace(/\\/g, "\\\\")
+            .replace(/\(/g, "\\(")
+            .replace(/\)/g, "\\)")
+            .replace(/[^\u0020-\u00FF]/g, "?");
+    }
+
+    function wrapPdfParagraph(text, maxLength = 92) {
+        let normalized = (text ?? "")
+            .replace(/\r/g, "")
+            .trim();
+        if (normalized === "") {
+            return [""];
+        }
+
+        let lines = [];
+        normalized.split("\n").forEach((rawLine) => {
+            let line = rawLine.trim();
+            if (line === "") {
+                lines.push("");
+                return;
+            }
+            let words = line.split(/\s+/);
+            let currentLine = "";
+            words.forEach((word) => {
+                let candidate = currentLine === "" ? word : `${currentLine} ${word}`;
+                if ((candidate.length <= maxLength) || (currentLine === "")) {
+                    currentLine = candidate;
+                    return;
+                }
+                lines.push(currentLine);
+                currentLine = word;
+            });
+            if (currentLine !== "") {
+                lines.push(currentLine);
+            }
+        });
+        return lines.length === 0 ? [""] : lines;
+    }
+
+    function buildPdfLines(metaInfo, itemSupplier) {
+        let lines = [];
+        [metaInfo.title, metaInfo.author ? `Author: ${metaInfo.author}` : "", metaInfo.language ? `Language: ${metaInfo.language}` : ""]
+            .filter(value => !util.isNullOrEmpty(value))
+            .forEach((value) => {
+                lines.push(...wrapPdfParagraph(value, 84));
+            });
+        lines.push("");
+
+        itemSupplier.spineItems().forEach((item, index) => {
+            let chapterHeading = item.chapterTitle ?? `Chapter ${index + 1}`;
+            lines.push(...wrapPdfParagraph(chapterHeading, 84));
+            lines.push("");
+            nodesToText(item.nodes)
+                .split("\n\n")
+                .forEach((paragraph) => {
+                    lines.push(...wrapPdfParagraph(paragraph, 92));
+                    lines.push("");
+                });
+            lines.push("");
+        });
+
+        while ((0 < lines.length) && (lines.at(-1) === "")) {
+            lines.pop();
+        }
+        return lines;
+    }
+
+    function createSimplePdfBlob(lines) {
+        let pageWidth = 612;
+        let pageHeight = 792;
+        let marginLeft = 48;
+        let marginTop = 748;
+        let lineHeight = 16;
+        let linesPerPage = 43;
+
+        let pages = [];
+        for (let index = 0; index < lines.length; index += linesPerPage) {
+            pages.push(lines.slice(index, index + linesPerPage));
+        }
+        if (pages.length === 0) {
+            pages.push([""]);
+        }
+
+        let fontObjectId = 3;
+        let objects = new Map();
+        let nextObjectId = 4;
+        let pageObjectIds = [];
+
+        objects.set(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        objects.set(fontObjectId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+
+        pages.forEach((pageLines) => {
+            let contentObjectId = nextObjectId++;
+            let pageObjectId = nextObjectId++;
+            pageObjectIds.push(pageObjectId);
+
+            let operators = [
+                "BT",
+                "/F1 11 Tf",
+                `${marginLeft} ${marginTop} Td`,
+                `${lineHeight} TL`
+            ];
+            pageLines.forEach((line, lineIndex) => {
+                operators.push(`(${sanitizePdfText(line)}) Tj`);
+                if (lineIndex !== pageLines.length - 1) {
+                    operators.push("T*");
+                }
+            });
+            operators.push("ET");
+
+            let stream = operators.join("\n");
+            let streamLength = stream.length;
+            objects.set(contentObjectId, `<< /Length ${streamLength} >>\nstream\n${stream}\nendstream`);
+            objects.set(
+                pageObjectId,
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] `
+                + `/Resources << /Font << /F1 ${fontObjectId} 0 R >> >> `
+                + `/Contents ${contentObjectId} 0 R >>`
+            );
+        });
+
+        objects.set(2, `<< /Type /Pages /Count ${pageObjectIds.length} /Kids [${pageObjectIds.map(id => `${id} 0 R`).join(" ")}] >>`);
+
+        let pdfChunks = [];
+        let offsets = [0];
+        let currentLength = 0;
+        let pushPdfChunk = (chunk) => {
+            pdfChunks.push(chunk);
+            currentLength += chunk.length;
+        };
+
+        pushPdfChunk("%PDF-1.4\n");
+        for (let objectId = 1; objectId < nextObjectId; objectId++) {
+            offsets[objectId] = currentLength;
+            pushPdfChunk(`${objectId} 0 obj\n${objects.get(objectId)}\nendobj\n`);
+        }
+        let xrefOffset = currentLength;
+        pushPdfChunk(`xref\n0 ${nextObjectId}\n`);
+        pushPdfChunk("0000000000 65535 f \n");
+        for (let objectId = 1; objectId < nextObjectId; objectId++) {
+            pushPdfChunk(`${String(offsets[objectId]).padStart(10, "0")} 00000 n \n`);
+        }
+        pushPdfChunk(
+            `trailer\n<< /Size ${nextObjectId} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+        );
+
+        let bytes = Uint8Array.from(
+            pdfChunks.join("")
+                .split("")
+                .map(character => character.charCodeAt(0) & 0xFF)
+        );
+        return new Blob([bytes], { type: "application/pdf" });
+    }
+
+    function buildPdfExport(metaInfo, itemSupplier) {
+        return createSimplePdfBlob(buildPdfLines(metaInfo, itemSupplier));
+    }
+
+    function buildHtmlExport(metaInfo, itemSupplier) {
+        let doc = util.createEmptyHtmlDoc();
+        doc.title = metaInfo.title ?? "";
+
+        let head = doc.querySelector("head");
+        let charset = doc.createElement("meta");
+        charset.setAttribute("charset", "utf-8");
+        head.prepend(charset);
+
+        let style = doc.createElement("style");
+        style.textContent = [
+            metaInfo.styleSheet ?? "",
+            "body{max-width:920px;margin:0 auto;padding:32px 24px;font-family:Georgia,serif;line-height:1.65;}",
+            ".webToEpub-export-cover{margin:0 0 32px;text-align:center;}",
+            ".webToEpub-export-cover img{max-width:320px;width:100%;height:auto;border-radius:12px;box-shadow:0 12px 40px rgba(15,23,42,.12);}",
+            ".webToEpub-export-meta{margin:0 0 36px;}",
+            ".webToEpub-export-meta h1{margin:0 0 8px;font-size:2rem;line-height:1.2;}",
+            ".webToEpub-export-meta p{margin:0;color:#475569;}",
+            ".webToEpub-export-chapter{margin-top:40px;padding-top:24px;border-top:1px solid #cbd5e1;}"
+        ].join("\n");
+        head.appendChild(style);
+
+        let body = doc.body;
+        let coverUrl = coverImageDataUrl(itemSupplier);
+        if (!util.isNullOrEmpty(coverUrl)) {
+            let cover = doc.createElement("figure");
+            cover.className = "webToEpub-export-cover";
+            let coverImage = doc.createElement("img");
+            coverImage.src = coverUrl;
+            coverImage.alt = metaInfo.title ?? "";
+            cover.appendChild(coverImage);
+            body.appendChild(cover);
+        }
+
+        let meta = doc.createElement("header");
+        meta.className = "webToEpub-export-meta";
+        let title = doc.createElement("h1");
+        title.textContent = metaInfo.title ?? "";
+        meta.appendChild(title);
+        let byline = doc.createElement("p");
+        byline.textContent = [metaInfo.author, metaInfo.language]
+            .filter(value => !util.isNullOrEmpty(value))
+            .join(" • ");
+        meta.appendChild(byline);
+        body.appendChild(meta);
+
+        itemSupplier.spineItems().forEach((item) => {
+            let section = doc.createElement("section");
+            section.className = "webToEpub-export-chapter";
+            for (let node of item.nodes ?? []) {
+                let clean = util.sanitizeNode(node);
+                if (clean != null) {
+                    section.appendChild(clean);
+                }
+            }
+            body.appendChild(section);
+        });
+
+        return new Blob([util.xmlToString(doc)], { type: "text/html;charset=utf-8" });
+    }
+
+    function nodesToText(nodes) {
+        return (nodes ?? [])
+            .map((node) => {
+                let clean = util.sanitizeNode(node);
+                return clean?.textContent?.replace(/\r/g, "")?.trim() ?? "";
+            })
+            .filter(text => !util.isNullOrEmpty(text))
+            .join("\n\n");
+    }
+
+    function buildTextExport(metaInfo, itemSupplier) {
+        let blocks = [];
+        if (!util.isNullOrEmpty(metaInfo.title)) {
+            blocks.push(metaInfo.title);
+        }
+        if (!util.isNullOrEmpty(metaInfo.author)) {
+            blocks.push(`Author: ${metaInfo.author}`);
+        }
+        if (!util.isNullOrEmpty(metaInfo.language)) {
+            blocks.push(`Language: ${metaInfo.language}`);
+        }
+
+        itemSupplier.spineItems().forEach((item) => {
+            let chapterTitle = item.chapterTitle ?? "";
+            let chapterText = nodesToText(item.nodes);
+            let chapterBlock = [chapterTitle, chapterText]
+                .filter(value => !util.isNullOrEmpty(value))
+                .join("\n\n");
+            if (!util.isNullOrEmpty(chapterBlock)) {
+                blocks.push(chapterBlock);
+            }
+        });
+
+        return new Blob([blocks.join("\n\n\n")], { type: "text/plain;charset=utf-8" });
+    }
+
+    function buildDownloadContent(metaInfo) {
+        let format = getSelectedDownloadFormat();
+        let itemSupplier = parser.epubItemSupplier();
+        switch (format) {
+            case "html":
+                return Promise.resolve(buildHtmlExport(metaInfo, itemSupplier));
+            case "pdf":
+                return Promise.resolve(buildPdfExport(metaInfo, itemSupplier));
+            case "txt":
+                return Promise.resolve(buildTextExport(metaInfo, itemSupplier));
+            case "mobi":
+                return Promise.reject(new Error("MOBI export requires an external converter and is not available in the extension runtime yet."));
+            default:
+                return packEpub(metaInfo, itemSupplier);
+        }
+    }
+
+    function buildDownloadFileName(overrides = {}) {
+        return Download.buildFileName({
+            ...overrides,
+            format: getSelectedDownloadFormat()
+        });
+    }
+
+    async function pickSaveLocationIfSupported(fileName, backgroundDownload) {
+        if (!Download.canUseSavePicker(backgroundDownload)) {
+            return undefined;
+        }
+        try {
+            return await Download.pickSaveLocation(fileName, getSelectedDownloadFormat());
+        } catch (error) {
+            if (["SecurityError", "NotAllowedError"].includes(error?.name)) {
+                return undefined;
+            }
+            throw error;
+        }
+    }
+
+    async function saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle = undefined) {
+        if (shouldStopCurrentDownload()) {
+            return;
+        }
+        if (fileHandle !== undefined) {
+            if (fileHandle == null) {
+                return;
+            }
+            await Download.saveToPickedLocation(content, fileHandle);
+            return;
+        }
+        await Download.save(content, fileName, overwriteExisting, backgroundDownload);
     }
 
     function dumpErrorLogToFile() {
@@ -223,36 +2148,51 @@ var main = (function() {
         }
     }
 
-    function getActiveTabDOM(tabId) {
+    async function getActiveTabDOM(tabId) {
         addMessageListener();
-        injectContentScript(tabId);
+        await injectContentScript(tabId);
     }
 
-    function injectContentScript(tabId) {
+    function handleTabModeLoadError(error) {
+        resetUI();
+        ErrorLog.showErrorMessage(
+            error?.message?.includes("No tab with id")
+                ? "The source tab is no longer available. Reload from the page you want to capture."
+                : error
+        );
+    }
+
+    async function injectContentScript(tabId) {
         if (util.isFirefox()) {
             Firefox.injectContentScript(tabId);
         } else {
-            chromeInjectContentScript(tabId);
+            await chromeInjectContentScript(tabId);
         }
     }
 
-    function chromeInjectContentScript(tabId) {
+    async function chromeInjectContentScript(tabId) {
         try {
-            chrome.scripting.executeScript({
+            await chrome.tabs.get(tabId);
+            await chrome.scripting.executeScript({
                 target: {tabId: tabId},
                 files: ["js/ContentScript.js"]
             });
-        } catch {
-            if (chrome.runtime.lastError) {
-                util.log(chrome.runtime.lastError.message);
-            }
+        } catch (error) {
+            handleTabModeLoadError(error);
         }
     }
 
     function populateControls() {
         loadUserPreferences();
         parserFactory.populateManualParserSelectionTag(getManuallySelectParserTag());
-        configureForTabMode();
+        let selectedHosts = readSelectedReferenceSiteHostsFromUi();
+        if (selectedHosts.size === 0) {
+            setSelectedReferenceSiteHosts(reliableReferenceSites);
+        } else {
+            syncReferenceSiteChipVisualState();
+        }
+        updateReferenceGroupingSourceSelect("current");
+        void configureForTabMode().catch(handleTabModeLoadError);
     }
 
     function loadUserPreferences() {
@@ -272,6 +2212,10 @@ var main = (function() {
     async function populateControlsWithDom(url, dom) {
         initialWebPage = dom;
         setUiFieldToValue("startingUrlInput", url);
+        clearReferenceGroupingSources({
+            preserveStatus: false,
+            preserveSiteSelection: true
+        });
 
         // set the base tag, in case server did not supply it 
         util.setBaseTag(url, initialWebPage);
@@ -279,6 +2223,8 @@ var main = (function() {
         if (document.getElementById("autosearchmetadataCheckbox").checked == true) {
             await autosearchadditionalmetadata();
         }
+        syncChapterGroupingModeWithAvailableGroups(parser?.getChapterGroups?.() ?? []);
+        scheduleAutomaticReferenceGroupingAnalysis({ immediate: true });
     }
 
     function setParser(url, dom) {
@@ -342,11 +2288,14 @@ var main = (function() {
         let url = chrome.runtime.getURL("popup.html") + "?id=";
         url += tabId;
         try {
-            chrome.tabs.create({ url: url, openerTabId: tabId });
+            await chrome.tabs.create({ url: url, openerTabId: tabId });
         }
-        catch (err) {
-            //firefox android catch
-            chrome.tabs.create({ url: url});
+        catch (error) {
+            if (popupRuntimeErrorMessage(error).includes("No tab with id")) {
+                await chrome.tabs.create({ url: url });
+            } else {
+                throw error;
+            }
         }
         window.close();
     }
@@ -377,14 +2326,22 @@ var main = (function() {
         }
     }
 
-    function configureForTabMode() {
-        getActiveTabDOM(extractTabIdFromQueryParameter());
+    async function configureForTabMode() {
+        let tabId = extractTabIdFromQueryParameter();
+        if (tabId == null) {
+            resetUI();
+            return;
+        }
+        await getActiveTabDOM(tabId);
     }
 
     function extractTabIdFromQueryParameter() {
         let windowId = window.location.search.split("=")[1];
         if (!util.isNullOrEmpty(windowId)) {
-            return parseInt(windowId, 10);
+            let parsed = parseInt(windowId, 10);
+            if (!Number.isNaN(parsed)) {
+                return parsed;
+            }
         }
     }
 
@@ -399,14 +2356,16 @@ var main = (function() {
     function resetUI() {
         initialWebPage = null;
         parser = null;
+        storyDownloadSession = null;
+        progressActionState = { isBusy: false, actionMode: "pack" };
+        clearReferenceGroupingSources();
         let metaInfo = new EpubMetaInfo();
         metaInfo.uuid = "";
         populateMetaInfo(metaInfo);
         getLoadAndAnalyseButton().hidden = false;
         main.getPackEpubButton().disabled = false;
         document.getElementById("LibAddToLibrary").disabled = false;
-        document.getElementById("LibAddToLibrary").hidden = false;
-        document.getElementById("LibPauseToLibrary").hidden = true;
+        setProgressActionBusy(false);
         ChapterUrlsUI.clearChapterUrlsTable();
         CoverImageUI.clearUI();
         ProgressBar.setValue(0);
@@ -467,6 +2426,34 @@ var main = (function() {
         userPreferences.readingList.onReadingListCheckboxClicked(checked, url);
     }
 
+    function updateThemeQuickToggleButton() {
+        let button = document.getElementById("themeQuickToggleButton");
+        let themeSelect = document.getElementById("themeColorTag");
+        if ((button == null) || (themeSelect == null)) {
+            return;
+        }
+
+        let isDarkActive = document.body.classList.contains("ns-theme-dark-active");
+        button.dataset.mode = isDarkActive ? "light" : "dark";
+        button.innerHTML = isDarkActive
+            ? "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"4\"></circle><path d=\"M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77\"></path></svg>"
+            : "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z\"></path></svg>";
+        let label = isDarkActive ? "Switch to light mode" : "Switch to dark mode";
+        button.title = label;
+        button.setAttribute("aria-label", label);
+    }
+
+    function onThemeQuickToggleButtonClick() {
+        let themeSelect = document.getElementById("themeColorTag");
+        if (themeSelect == null) {
+            return;
+        }
+        let isDarkActive = document.body.classList.contains("ns-theme-dark-active");
+        themeSelect.value = isDarkActive ? "LightMode" : "DarkMode";
+        themeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+        window.requestAnimationFrame(updateThemeQuickToggleButton);
+    }
+
     function sbFiltersShow()
     {
         sbShow();
@@ -480,11 +2467,15 @@ var main = (function() {
     }
 
     function sbShow() {
-        document.getElementById("sbOptions").classList.add("sidebarOpen");
+        let sidebar = document.getElementById("sbOptions");
+        sidebar.classList.add("sidebarOpen");
+        sidebar.setAttribute("aria-hidden", "false");
     }
 
     function sbHide() {
-        document.getElementById("sbOptions").classList.remove("sidebarOpen");
+        let sidebar = document.getElementById("sbOptions");
+        sidebar.classList.remove("sidebarOpen");
+        sidebar.setAttribute("aria-hidden", "true");
         document.getElementById("sbFilters").hidden = true;
     }
 
@@ -518,7 +2509,51 @@ var main = (function() {
     }
 
     function addEventHandlers() {
-        getPackEpubButton().onclick = fetchContentAndPackEpub;
+        getPackEpubButton().onclick = onPackEpubButtonClick;
+        let downloadPacksButton = document.getElementById("downloadPacksButton");
+        if (downloadPacksButton != null) {
+            downloadPacksButton.onclick = downloadPacks;
+        }
+        let downloadMarkedGroupsButton = document.getElementById("downloadMarkedChapterGroupsButton");
+        if (downloadMarkedGroupsButton != null) {
+            downloadMarkedGroupsButton.onclick = downloadMarkedChapterGroups;
+        }
+        let downloadAllGroupsButton = document.getElementById("downloadAllChapterGroupsButton");
+        if (downloadAllGroupsButton != null) {
+            downloadAllGroupsButton.onclick = downloadAllChapterGroups;
+        }
+        document.getElementById("analyzeReferenceSitesButton").onclick = analyzeReferenceGroupingSources;
+        document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
+        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
+            checkbox.onchange = () => {
+                syncReferenceSiteChipVisualState();
+                clearReferenceGroupingSources({
+                    preserveStatus: true,
+                    preserveSiteSelection: true
+                });
+                scheduleAutomaticReferenceGroupingAnalysis({ force: true });
+            };
+        });
+        document.getElementById("selectRecommendedReferenceSitesButton").onclick = () => {
+            setSelectedReferenceSiteHosts(reliableReferenceSites);
+            scheduleAutomaticReferenceGroupingAnalysis({ force: true, immediate: true });
+        };
+        document.getElementById("clearReferenceSiteSelectionButton").onclick = () => {
+            setSelectedReferenceSiteHosts([]);
+            clearReferenceGroupingSources({
+                preserveStatus: true,
+                preserveSiteSelection: true
+            });
+            setReferenceGroupingStatus("No reference site selected.", "info");
+        };
+        getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
+        document.getElementById("titleInput").addEventListener("change", () => {
+            clearReferenceGroupingSources({
+                preserveStatus: true,
+                preserveSiteSelection: true
+            });
+            scheduleAutomaticReferenceGroupingAnalysis({ force: true });
+        });
         document.getElementById("diagnosticsCheckBoxInput").onclick = onDiagnosticsClick;
         document.getElementById("reloadButton").onclick = populateControls;
         getManuallySelectParserTag().onchange = populateControls;
@@ -526,7 +2561,7 @@ var main = (function() {
         document.getElementById("hiddenBibButton").onclick = onLibraryClick;
         document.getElementById("ShowMoreMetadataOptionsCheckbox").addEventListener("change", () => onShowMoreMetadataOptionsClick());
         document.getElementById("LibShowAdvancedOptionsCheckbox").addEventListener("change", () => Library.LibRenderSavedEpubs());
-        document.getElementById("LibAddToLibrary").addEventListener("click", fetchContentAndPackEpub);
+        document.getElementById("LibAddToLibrary").addEventListener("click", onLibraryActionButtonClick);
         document.getElementById("LibPauseToLibrary").addEventListener("click", pauseToLibrary);
         document.getElementById("stylesheetToDefaultButton").onclick = onStylesheetToDefaultClick;
         document.getElementById("resetButton").onclick = resetUI;
@@ -542,6 +2577,20 @@ var main = (function() {
         UserPreferences.getReadingListCheckbox().onclick = onReadingListCheckboxClicked;
         document.getElementById("viewFiltersButton").onclick = () => sbFiltersShow();
         document.getElementById("sbClose").onclick = () => sbHide();
+        document.getElementById("sbOptions").onclick = (event) => {
+            if (event.target.id === "sbOptions") {
+                sbHide();
+            }
+        };
+        let themeQuickToggleButton = document.getElementById("themeQuickToggleButton");
+        if (themeQuickToggleButton != null) {
+            themeQuickToggleButton.onclick = onThemeQuickToggleButtonClick;
+        }
+        let themeSelect = document.getElementById("themeColorTag");
+        if (themeSelect != null) {
+            themeSelect.addEventListener("change", () => window.requestAnimationFrame(updateThemeQuickToggleButton));
+        }
+        updateThemeQuickToggleButton();
         document.getElementById("viewReadingListButton").onclick = () => showReadingList();
         window.addEventListener("beforeunload", onUnloadEvent);
     }
@@ -616,6 +2665,7 @@ var main = (function() {
 
     // actions to do when window opened
     window.onload = async () => {
+        window.addEventListener("unhandledrejection", onUnhandledRejection);
         userPreferences = UserPreferences.readFromLocalStorage();
         if (isRunningInTabMode()) { 
             ErrorLog.SuppressErrorLog =  false;
@@ -636,6 +2686,10 @@ var main = (function() {
         getPackEpubButton: getPackEpubButton,
         onLoadAndAnalyseButtonClick : onLoadAndAnalyseButtonClick,
         fetchContentAndPackEpub: fetchContentAndPackEpub,
+        downloadSingleChapterByUrl: downloadSingleChapterByUrl,
+        downloadChapterGroup: downloadChapterGroup,
+        downloadMarkedChapterGroups: downloadMarkedChapterGroups,
+        downloadAllChapterGroups: downloadAllChapterGroups,
         resetUI: resetUI,
         getUserPreferences: () => userPreferences,
     };

@@ -836,14 +836,18 @@ class Library { // eslint-disable-line no-unused-vars
     static LibDownload(objbtn) {
         let LibGetFileAndName = ["LibEpub" + objbtn.dataset.libepubid, "LibFilename" + objbtn.dataset.libepubid];
         chrome.storage.local.get(LibGetFileAndName, async function(items) {
-            let userPreferences = UserPreferences.readFromLocalStorage();
-            let overwriteExisting = userPreferences.overwriteExistingEpub.value;
-            let backgroundDownload = userPreferences.noDownloadPopup.value;
-            let LibRemove = ["LibNewChapterCount" + objbtn.dataset.libepubid];
-            chrome.storage.local.remove(LibRemove);
-            document.getElementById("LibNewChapterCount"+objbtn.dataset.libepubid).innerHTML = "";
-            let blobdata = await Library.LibConvertDataUrlToBlob(items["LibEpub" + objbtn.dataset.libepubid]);
-            return Download.save(blobdata, items["LibFilename" + objbtn.dataset.libepubid] + ".epub", overwriteExisting, backgroundDownload);
+            try {
+                let userPreferences = UserPreferences.readFromLocalStorage();
+                let overwriteExisting = userPreferences.overwriteExistingEpub.value;
+                let backgroundDownload = userPreferences.noDownloadPopup.value;
+                let LibRemove = ["LibNewChapterCount" + objbtn.dataset.libepubid];
+                chrome.storage.local.remove(LibRemove);
+                document.getElementById("LibNewChapterCount"+objbtn.dataset.libepubid).innerHTML = "";
+                let blobdata = await Library.LibConvertDataUrlToBlob(items["LibEpub" + objbtn.dataset.libepubid]);
+                await Download.save(blobdata, items["LibFilename" + objbtn.dataset.libepubid] + ".epub", overwriteExisting, backgroundDownload);
+            } catch (error) {
+                ErrorLog.showErrorMessage(Download.toUserFacingError(error));
+            }
         });
     }
 

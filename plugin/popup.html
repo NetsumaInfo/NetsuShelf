@@ -618,8 +618,10 @@
                 </div>
                 <div id="referenceGroupingControls" class="packBatchControls referenceGroupingPanel">
                     <div class="referenceGroupingHeader">
-                        <label for="referenceGroupingSourceSelect">Reference sites</label>
-                        <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
+                        <div class="referenceGroupingHeading">
+                            <label for="referenceGroupingSourceSelect">Reference sites</label>
+                            <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
+                        </div>
                     </div>
                     <div id="referenceSitePresetFilters" class="referenceSiteChipRow">
                         <label class="referenceSiteChip">
@@ -643,18 +645,11 @@
                             <span>Baka-Tsuki</span>
                         </label>
                     </div>
-                    <div class="referenceGroupingActions">
-                        <div class="referenceSitePresetActions">
-                            <button id="selectRecommendedReferenceSitesButton" type="button">All</button>
-                            <button id="clearReferenceSiteSelectionButton" type="button">None</button>
-                            <button id="analyzeReferenceSitesButton" type="button">Detect</button>
-                        </div>
-                        <div class="referenceGroupingSourceSelectWrap">
-                            <label for="referenceGroupingSourceSelect">Loaded groups</label>
-                            <select id="referenceGroupingSourceSelect">
-                                <option value="current" selected="selected">Current site groups</option>
-                            </select>
-                        </div>
+                    <div class="referenceGroupingSourceSelectWrap">
+                        <label for="referenceGroupingSourceSelect">Loaded groups</label>
+                        <select id="referenceGroupingSourceSelect">
+                            <option value="current" selected="selected">Current site groups</option>
+                        </select>
                     </div>
                     <span id="referenceGroupingStatus" class="chapterGroupingHint" hidden="true"></span>
                 </div>

@@ -719,47 +719,37 @@ var main = (function() {
             return;
         }
 
-        let analyzeButton = document.getElementById("analyzeReferenceSitesButton");
-        if (analyzeButton != null) {
-            analyzeButton.disabled = true;
-        }
         setReferenceGroupingStatus(`Searching ${selectedHosts.length} reference site${selectedHosts.length === 1 ? "" : "s"}...`, "info");
 
         let sources = [];
         let failures = [];
 
-        try {
-            for (let host of selectedHosts) {
-                try {
-                    let match = await searchReferenceGroupingSourceByHost(host, searchTerms);
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    if (match == null) {
-                        failures.push(`${referenceSiteLabel(host)}: no matching story found`);
-                        continue;
-                    }
-                    let source = await analyzeReferenceGroupingSourceUrl(match.url, {
-                        storyLabel: match.title
-                    });
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    if (source == null) {
-                        failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
-                        continue;
-                    }
-                    sources.push(source);
-                } catch (error) {
-                    if (analysisSequence !== referenceGroupingAnalysisSequence) {
-                        return;
-                    }
-                    failures.push(`${referenceSiteLabel(host)}: ${error.message}`);
+        for (let host of selectedHosts) {
+            try {
+                let match = await searchReferenceGroupingSourceByHost(host, searchTerms);
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
                 }
-            }
-        } finally {
-            if (analyzeButton != null) {
-                analyzeButton.disabled = false;
+                if (match == null) {
+                    failures.push(`${referenceSiteLabel(host)}: no matching story found`);
+                    continue;
+                }
+                let source = await analyzeReferenceGroupingSourceUrl(match.url, {
+                    storyLabel: match.title
+                });
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
+                }
+                if (source == null) {
+                    failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
+                    continue;
+                }
+                sources.push(source);
+            } catch (error) {
+                if (analysisSequence !== referenceGroupingAnalysisSequence) {
+                    return;
+                }
+                failures.push(`${referenceSiteLabel(host)}: ${error.message}`);
             }
         }
 
@@ -2522,7 +2512,6 @@ var main = (function() {
         if (downloadAllGroupsButton != null) {
             downloadAllGroupsButton.onclick = downloadAllChapterGroups;
         }
-        document.getElementById("analyzeReferenceSitesButton").onclick = analyzeReferenceGroupingSources;
         document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
         getReferenceSitePresetCheckboxes().forEach((checkbox) => {
             checkbox.onchange = () => {
@@ -2534,18 +2523,6 @@ var main = (function() {
                 scheduleAutomaticReferenceGroupingAnalysis({ force: true });
             };
         });
-        document.getElementById("selectRecommendedReferenceSitesButton").onclick = () => {
-            setSelectedReferenceSiteHosts(reliableReferenceSites);
-            scheduleAutomaticReferenceGroupingAnalysis({ force: true, immediate: true });
-        };
-        document.getElementById("clearReferenceSiteSelectionButton").onclick = () => {
-            setSelectedReferenceSiteHosts([]);
-            clearReferenceGroupingSources({
-                preserveStatus: true,
-                preserveSiteSelection: true
-            });
-            setReferenceGroupingStatus("No reference site selected.", "info");
-        };
         getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
         document.getElementById("titleInput").addEventListener("change", () => {
             clearReferenceGroupingSources({

@@ -1,0 +1,718 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply m-0 bg-slate-100 text-slate-800 antialiased;
+    }
+}
+
+@layer components {
+    .container {
+        @apply mx-auto my-4 block w-full max-w-6xl rounded-xl border border-slate-200 bg-white p-4 shadow-sm;
+    }
+
+    .topQuickActions {
+        @apply mb-2 flex justify-end;
+    }
+
+    #themeQuickToggleButton {
+        @apply inline-flex h-8 w-8 min-h-0 min-w-0 items-center justify-center rounded-full border border-slate-300 bg-white p-0 text-slate-700 shadow-sm transition hover:bg-slate-50;
+    }
+
+    #themeQuickToggleButton svg {
+        width: 16px;
+        height: 16px;
+        fill: currentColor;
+    }
+
+    #inputSection,
+    #outputSection,
+    #advancedOptionsSection,
+    #hiddenBibSection,
+    #imageSection,
+    #defaultParserSection,
+    #errorSection,
+    #readingListSection {
+        @apply rounded-lg border border-slate-200 bg-slate-50 p-3;
+    }
+
+    #outputSection,
+    #advancedOptionsSection,
+    #hiddenBibSection,
+    #imageSection,
+    #defaultParserSection,
+    #errorSection,
+    #readingListSection {
+        @apply mt-4;
+    }
+
+    #inputSection table,
+    #outputSection table,
+    #advancedOptionsSection table,
+    #hiddenBibSection table,
+    #imageSection table,
+    #readingListSection table {
+        @apply w-full border-collapse;
+    }
+
+    #inputSection tbody > tr > td,
+    #outputSection tbody > tr > td,
+    #advancedOptionsSection tbody > tr > td,
+    #hiddenBibSection tbody > tr > td,
+    #imageSection tbody > tr > td {
+        @apply px-2 py-1.5 align-top;
+    }
+
+    #inputSection tbody > tr > td:first-child,
+    #outputSection tbody > tr > td:first-child,
+    #advancedOptionsSection tbody > tr > td:first-child {
+        @apply w-44 text-sm font-medium text-slate-700;
+    }
+
+    input[type=text],
+    input[type=url],
+    input[type=number],
+    textarea,
+    select,
+    #manualDelayPerChapterTag {
+        @apply w-full min-w-0 max-w-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none ring-0 transition focus:border-sky-500 focus:ring-2 focus:ring-sky-100;
+    }
+
+    #inputSection input {
+        width: 100% !important;
+    }
+
+    button {
+        @apply rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50;
+    }
+
+    .expandedButton {
+        @apply px-4 py-2;
+    }
+
+    .packBatchControls {
+        @apply mt-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-2;
+    }
+
+    .packBatchControls label {
+        @apply text-xs font-semibold text-slate-700;
+    }
+
+    #packSizeInput {
+        @apply w-40 min-w-0;
+    }
+
+    .chapterToolsControls {
+        @apply mt-2 flex flex-wrap items-center gap-2;
+    }
+
+    .chapterToolsControls label {
+        @apply inline-flex items-center gap-1 text-xs font-semibold text-slate-700;
+    }
+
+    .smartSelectControls {
+        @apply mt-2 grid items-center gap-2 rounded-md border border-slate-200 bg-white p-2;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+    }
+
+    .smartSelectControls label {
+        @apply text-xs font-semibold text-slate-700;
+    }
+
+    #smartSelectMode {
+        @apply w-44;
+    }
+
+    .chapterActionBar {
+        @apply mt-2 flex flex-wrap items-center gap-2;
+    }
+
+    .chapterActionPrimary {
+        @apply flex flex-wrap items-center gap-2;
+    }
+
+    .chapterActionSecondary {
+        @apply rounded-md border border-slate-300 bg-white text-xs text-slate-700 shadow-sm;
+    }
+
+    .chapterActionSecondary summary {
+        @apply cursor-pointer list-none px-3 py-2 font-medium;
+    }
+
+    .chapterActionSecondary summary::marker {
+        content: "";
+    }
+
+    .chapterActionSecondary summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .chapterActionSecondary[open] summary {
+        @apply border-b border-slate-200 bg-slate-50;
+    }
+
+    .chapterActionSecondaryBody {
+        @apply flex flex-wrap items-center gap-2 p-2;
+    }
+
+    .progressSection {
+        @apply mt-3 grid w-full max-w-none grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-slate-200 bg-white p-3;
+    }
+
+    progress {
+        @apply h-3 w-full;
+        margin: 0 !important;
+    }
+
+    #packEpubButton {
+        @apply col-start-1;
+    }
+
+    #fetchProgress {
+        @apply col-start-2;
+    }
+
+    #LibAddToLibrary,
+    #LibPauseToLibrary {
+        @apply col-start-3;
+    }
+
+    #progressString {
+        @apply col-start-2 justify-self-center text-xs font-semibold text-slate-700;
+    }
+
+    #coverUrlSection img {
+        @apply static ml-auto mt-2 max-h-36 max-w-28 rounded border border-slate-200 bg-white p-1;
+    }
+
+    #coverUrlSection img[hidden] {
+        display: none;
+    }
+
+    #chapterUrlsTable tbody > tr > th {
+        @apply border-b border-slate-200 py-2 pr-3 text-left text-xs font-semibold text-slate-600;
+        white-space: nowrap;
+    }
+
+    #chapterUrlsTable tbody > tr > th + th {
+        @apply border-l border-slate-200 pl-3;
+    }
+
+    #chapterUrlsTable tbody > tr > td {
+        @apply border-b border-slate-100;
+        vertical-align: middle;
+    }
+
+    #chapterUrlsTable tbody > tr > th:first-child,
+    #chapterUrlsTable tbody > tr > td:first-child {
+        @apply py-1.5;
+        width: 1%;
+        min-width: 50px;
+        text-align: center;
+        white-space: nowrap;
+        padding-left: 3px;
+        padding-right: 3px;
+    }
+
+    #chapterUrlsTable > tbody > tr > td:first-child {
+        width: 1% !important;
+        min-width: 50px !important;
+        max-width: none !important;
+    }
+
+    #chapterUrlsTable > tbody > tr > td:nth-child(2) {
+        width: auto !important;
+    }
+
+    #chapterUrlsTable tbody > tr > td:first-child input[type=checkbox],
+    #chapterUrlsTable tbody > tr > td:first-child img,
+    #chapterUrlsTable tbody > tr > td:first-child .tooltip {
+        float: none !important;
+    }
+
+    .chapterRowSelectable {
+        @apply transition-colors;
+    }
+
+    .chapterRowSelectable:focus-visible {
+        @apply outline-none ring-2 ring-sky-300;
+    }
+
+    .chapterIncludeControls {
+        @apply inline-grid justify-center;
+        grid-auto-flow: column;
+        align-items: center;
+        column-gap: 6px;
+        width: max-content;
+        min-height: 24px;
+        line-height: 1;
+        margin: 0 auto;
+        padding: 0;
+    }
+
+    .chapterIncludeCheckbox {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        min-width: 16px;
+        min-height: 16px;
+        flex: 0 0 16px;
+        margin: 0;
+        border: 1px solid #3b5e8f;
+        border-radius: 4px;
+        background-color: #0f2840;
+        vertical-align: middle;
+        align-self: center;
+        cursor: pointer;
+        transform: translateY(4px);
+    }
+
+    .chapterIncludeCheckbox::after {
+        content: "";
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .chapterIncludeCheckbox:checked {
+        border-color: #10b981;
+        background-color: #10b981;
+    }
+
+    .chapterIncludeCheckbox:checked::after {
+        content: "\2713";
+    }
+
+    .chapterIncludeCheckbox.isExcluded {
+        border-color: #f43f5e;
+        background-color: #f43f5e;
+    }
+
+    .chapterIncludeCheckbox.isExcluded::after {
+        content: "\2715";
+    }
+
+    .chapterIncludeCheckbox:focus-visible {
+        outline: 2px solid #7dd3fc;
+        outline-offset: 1px;
+    }
+
+    .chapterIncludeControls .downloadStateDiv {
+        @apply inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white;
+    }
+
+    .chapterIncludeControls .downloadStateDiv[hidden] {
+        display: none !important;
+    }
+
+    .chapterIncludeControls .downloadStateDiv > img {
+        width: 13px;
+        height: 13px;
+    }
+
+    .chapterRowSelected {
+        @apply bg-emerald-50/30;
+    }
+
+    .chapterRowExcluded {
+        @apply bg-rose-50/20;
+    }
+
+    .chapterRowExcluded input[type=text] {
+        @apply opacity-70;
+    }
+
+    #chapterUrlsTable input[type=text] {
+        @apply w-full max-w-none;
+        left: 0 !important;
+    }
+
+    #imagesTableDiv,
+    .scrollingtable {
+        @apply max-h-80 overflow-auto rounded-md border border-slate-200 bg-white;
+    }
+
+    .HiddenButtonSection {
+        @apply hidden;
+    }
+
+    .warning {
+        @apply text-sm font-semibold text-rose-700;
+    }
+
+    .sidebar {
+        @apply fixed inset-0 z-50 h-full w-full flex justify-end bg-slate-900/55 opacity-0 pointer-events-none transition;
+        float: none;
+    }
+
+    .sidebar.sidebarOpen {
+        @apply h-full w-full opacity-100 pointer-events-auto;
+    }
+
+    .sidebarPanel {
+        @apply h-full w-[min(460px,92vw)] overflow-hidden border-l border-slate-300 bg-white shadow-2xl flex flex-col;
+    }
+
+    .sidebarHeader {
+        @apply flex items-center justify-between border-b border-slate-200 px-4 py-3;
+    }
+
+    .sidebarHeader h3 {
+        @apply text-sm font-semibold text-slate-800;
+    }
+
+    .sidebar .closebtn {
+        @apply h-8 w-auto min-h-0 rounded-md border border-slate-300 px-2 py-1 text-sm font-semibold text-slate-700;
+    }
+
+    #sbFilters {
+        @apply flex-1 overflow-auto p-3;
+    }
+
+    #sbFiltersForm {
+        @apply block;
+    }
+
+    #sbFiltersForm .chapterFilterTable {
+        @apply w-full border-collapse;
+    }
+
+    #sbFiltersForm .chapterFilterRow td {
+        @apply border-b border-slate-100 px-2 py-1.5 align-top;
+    }
+
+    #sbFiltersForm .chapterFilterRow td:first-child {
+        @apply w-8;
+    }
+
+    #sbFiltersForm .chapterFilterSearchRow td {
+        @apply border-b border-slate-200 bg-slate-50;
+    }
+
+    #sbFiltersForm label {
+        @apply mb-0 block text-sm text-slate-700;
+    }
+
+    #sbFiltersForm input.exclude {
+        accent-color: #b91c1c;
+    }
+
+    .ns-section-title {
+        @apply mb-2 text-sm font-semibold tracking-tight text-slate-800;
+    }
+
+    @media (max-width: 920px) {
+        .smartSelectControls {
+            grid-template-columns: 1fr;
+        }
+
+        #smartSelectMode {
+            @apply w-full;
+        }
+
+        .progressSection {
+            @apply grid-cols-1;
+        }
+
+        #fetchProgress,
+        #packEpubButton,
+        #LibAddToLibrary,
+        #LibPauseToLibrary {
+            @apply col-start-1;
+        }
+
+        #progressString {
+            @apply col-start-1 justify-self-center;
+        }
+    }
+}
+
+.chapterQuickDownloadButton {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 0;
+    border-radius: 9999px;
+    border: 1px solid rgb(148 163 184);
+    background-color: rgb(255 255 255);
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgb(51 65 85);
+    align-self: center;
+    margin-left: 1px;
+    position: static;
+    transform: translateY(1px);
+}
+
+.chapterQuickDownloadButton:hover {
+    background-color: rgb(241 245 249);
+}
+
+.chapterQuickDownloadButton svg {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
+}
+
+#chapterUrlsTable .chapterIncludeControls {
+    display: inline-grid !important;
+    grid-auto-flow: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    column-gap: 6px !important;
+    width: max-content !important;
+    min-height: 24px !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox,
+#chapterUrlsTable .chapterQuickDownloadButton {
+    float: none !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    margin: 0 !important;
+    border: 1px solid #3b5e8f !important;
+    border-radius: 4px !important;
+    background-color: #0f2840 !important;
+    align-self: center !important;
+    transform: translateY(4px) !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox::after {
+    content: "" !important;
+    color: #ffffff !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox:checked {
+    border-color: #10b981 !important;
+    background-color: #10b981 !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox:checked::after {
+    content: "\2713" !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox.isExcluded {
+    border-color: #f43f5e !important;
+    background-color: #f43f5e !important;
+}
+
+#chapterUrlsTable .chapterIncludeCheckbox.isExcluded::after {
+    content: "\2715" !important;
+}
+
+body.ns-theme-dark-active {
+    background: #0b1220;
+    color: #dbe7ff;
+}
+
+body.ns-theme-dark-active .container {
+    background: #0d1628;
+    border-color: #1f3048;
+}
+
+body.ns-theme-dark-active #inputSection,
+body.ns-theme-dark-active #outputSection,
+body.ns-theme-dark-active #advancedOptionsSection,
+body.ns-theme-dark-active #hiddenBibSection,
+body.ns-theme-dark-active #imageSection,
+body.ns-theme-dark-active #defaultParserSection,
+body.ns-theme-dark-active #errorSection,
+body.ns-theme-dark-active #readingListSection {
+    background: #101c31;
+    border-color: #263a56;
+}
+
+body.ns-theme-dark-active #inputSection td,
+body.ns-theme-dark-active #outputSection td,
+body.ns-theme-dark-active #advancedOptionsSection td,
+body.ns-theme-dark-active #defaultParserSection td,
+body.ns-theme-dark-active #hiddenBibSection td,
+body.ns-theme-dark-active #readingListSection td,
+body.ns-theme-dark-active #imageSection td {
+    color: #d6e2fa;
+}
+
+body.ns-theme-dark-active .ns-section-title {
+    color: #dbe7ff;
+}
+
+body.ns-theme-dark-active .packBatchControls label,
+body.ns-theme-dark-active .chapterToolsControls label,
+body.ns-theme-dark-active .smartSelectControls label,
+body.ns-theme-dark-active #progressString {
+    color: #c9d7f0;
+}
+
+body.ns-theme-dark-active #inputSection tbody > tr > td:first-child,
+body.ns-theme-dark-active #outputSection tbody > tr > td:first-child,
+body.ns-theme-dark-active #advancedOptionsSection tbody > tr > td:first-child {
+    color: #c9d7f0;
+}
+
+body.ns-theme-dark-active input[type=text],
+body.ns-theme-dark-active input[type=url],
+body.ns-theme-dark-active input[type=number],
+body.ns-theme-dark-active textarea,
+body.ns-theme-dark-active select {
+    background: #0b1324;
+    border-color: #334d73;
+    color: #e7eeff;
+}
+
+body.ns-theme-dark-active select option {
+    background: #0b1324;
+    color: #e7eeff;
+}
+
+body.ns-theme-dark-active button {
+    background: #13203a;
+    border-color: #35527b;
+    color: #e7eeff;
+}
+
+body.ns-theme-dark-active button:hover {
+    background: #1a2a49;
+}
+
+body.ns-theme-dark-active #themeQuickToggleButton {
+    border-color: #4a698e;
+    background: #162742;
+    color: #e7eeff;
+}
+
+body.ns-theme-dark-active #themeQuickToggleButton:hover {
+    background: #1e3358;
+}
+
+body.ns-theme-dark-active .packBatchControls,
+body.ns-theme-dark-active .progressSection,
+body.ns-theme-dark-active .chapterActionSecondary,
+body.ns-theme-dark-active .smartSelectControls,
+body.ns-theme-dark-active #imagesTableDiv,
+body.ns-theme-dark-active .scrollingtable {
+    background: #0c162a;
+    border-color: #263a56;
+}
+
+body.ns-theme-dark-active .chapterActionSecondary[open] summary {
+    background: #13203a;
+    border-color: #35527b;
+}
+
+body.ns-theme-dark-active #chapterUrlsTable tbody > tr > th {
+    color: #c9d7f0;
+    border-color: #35527b;
+}
+
+body.ns-theme-dark-active #chapterUrlsTable tbody > tr > td {
+    border-color: #1f3048;
+}
+
+body.ns-theme-dark-active .chapterQuickDownloadButton {
+    border-color: #35527b;
+    background: #13203a;
+    color: #dbe7ff;
+}
+
+body.ns-theme-dark-active .chapterQuickDownloadButton:hover {
+    background: #1a2a49;
+}
+
+body.ns-theme-dark-active .chapterIncludeControls .downloadStateDiv {
+    border-color: #35527b;
+    background: #13203a;
+}
+
+body.ns-theme-dark-active .chapterIncludeCheckbox {
+    border-color: #4a698e;
+    background-color: #0f2840;
+}
+
+body.ns-theme-dark-active .chapterIncludeCheckbox.isExcluded {
+    border-color: #f43f5e;
+    background-color: #f43f5e;
+}
+
+body.ns-theme-dark-active .chapterIncludeCheckbox:checked {
+    border-color: #10b981;
+    background-color: #10b981;
+}
+
+body.ns-theme-dark-active .chapterRowSelected {
+    background: rgba(24, 76, 59, 0.3);
+}
+
+body.ns-theme-dark-active .chapterRowExcluded {
+    background: rgba(95, 26, 48, 0.22);
+}
+
+body.ns-theme-dark-active #chapterUrlsTable a,
+body.ns-theme-dark-active #outputSection a,
+body.ns-theme-dark-active #advancedOptionsSection a {
+    color: #93c5fd;
+}
+
+body.ns-theme-dark-active #chapterUrlsTable a:hover,
+body.ns-theme-dark-active #outputSection a:hover,
+body.ns-theme-dark-active #advancedOptionsSection a:hover {
+    color: #bfdbfe;
+}
+
+body.ns-theme-dark-active #sbFiltersForm .chapterFilterSearchRow td {
+    background: #0b1324;
+}
+
+body.ns-theme-dark-active #sbFiltersForm .chapterFilterRow td {
+    border-color: #263a56;
+}
+
+body.ns-theme-dark-active #sbFiltersForm label,
+body.ns-theme-dark-active .sidebarHeader h3 {
+    color: #dbe7ff;
+}
+
+body.ns-theme-dark-active .sidebarPanel {
+    background: #0d1628;
+    border-color: #263a56;
+}
+
+body.ns-theme-dark-active progress {
+    background: #0b1324;
+}
+
+body.ns-theme-dark-active progress::-webkit-progress-bar {
+    background-color: #0b1324;
+}
+
+body.ns-theme-dark-active progress::-webkit-progress-value {
+    background-color: #3b82f6;
+}
+
+body.ns-theme-dark-active progress::-moz-progress-bar {
+    background-color: #3b82f6;
+}

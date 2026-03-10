@@ -2,20 +2,27 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>WebToEpub</title>
+    <title>NetsuShelf</title>
     <link href="css/default.css" rel="stylesheet" type="text/css" />
     <link href="css/autoDark.css" rel="stylesheet" type="text/css"  id="autoDark" />
     <link href="css/alwaysDark.css" rel="stylesheet" type="text/css" id="alwaysDark" disabled="true"/>
+    <link href="css/popup-tailwind.css" rel="stylesheet" type="text/css" />
+    <link href="css/popup-overrides.css" rel="stylesheet" type="text/css" />
     <base />
 </head>
 <body>
     <div class="container">
+        <div class="topQuickActions">
+            <button id="themeQuickToggleButton" type="button" aria-label="Switch theme" title="Switch theme"></button>
+        </div>
         <section id="readingListSection" hidden="true">
+            <h2 class="ns-section-title">Reading List</h2>
             <button id="closeReadingList">__MSG_button_Close_ReadingList__</button>
             <table id="readingListTable">
             </table>
         </section>
         <section id="errorSection" class="minWidth" hidden="true">
+            <h2 class="ns-section-title">Errors</h2>
             <table id="errorSectionTable">
                 <tr>
                     <td>
@@ -32,6 +39,7 @@
             </table>
         </section>
         <section id="defaultParserSection" hidden="true">
+            <h2 class="ns-section-title">Default Parser Setup</h2>
             <p class="i18n">__MSG_label_Using_Default_Parser__</p>
             <table>
                 <tr>
@@ -65,6 +73,7 @@
                     </td>
                 </tr>
             </table>
+            <button id="autoDetectDefaultParserButton">Auto Detect Parser</button>
             <button id="testDefaultParserButton">__MSG_button_test_default_parser__</button>
             <button id="finisheddefaultParserButton">__MSG_button_finished_default_parser__</button>
             <button id="defaultParserHelpButton">__MSG_button_Help__</button>
@@ -75,8 +84,8 @@
             </div>
             <div id="defaultParserInstructions" hidden="true">
                 <h3>Instructions</h3>
-                <p>WebToEpub does not know what content on each web page (chapter) to put into the EPUB.</p>
-                <p>Use this screen to tell WebToEpub which element on the web page has the wanted content.</p>
+                <p>NetsuShelf does not know what content on each web page (chapter) to put into the EPUB.</p>
+                <p>Use this screen to tell NetsuShelf which element on the web page has the wanted content.</p>
                 <p>Give a <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Selectors">CSS Selector</a> for the wanted element.</p>
                 <p>After providing the CSS Selector, test it works by clicking the "Test" button. Which will make this box show you what will be packed into the first chapter of the EPUB.</p>
                 <br />
@@ -84,6 +93,7 @@
             </div>
         </section>
         <section id="inputSection">
+            <h2 class="ns-section-title">1. Story Information</h2>
             <table id="inputTable">
                 <tr>
                     <td>__MSG_label_Starting_URL__</td>
@@ -109,6 +119,18 @@
                 <tr>
                     <td>__MSG_label_Filename__</td>
                     <td><input id="fileNameInput" type="text" name="fileNameInput" /></td>
+                </tr>
+                <tr>
+                    <td>Download format</td>
+                    <td>
+                        <select id="downloadFormatSelect">
+                            <option value="epub" selected="selected">EPUB</option>
+                            <option value="html">HTML</option>
+                            <option value="pdf">PDF</option>
+                            <option value="txt">TXT</option>
+                            <option value="mobi">MOBI</option>
+                        </select>
+                    </td>
                 </tr>
                 <tr id="removeAuthorNotesRow" hidden="true">
                     <td><input id="removeAuthorNotesCheckbox" type="checkbox" name="removeAuthorNotesCheckbox" value="false"></td>
@@ -144,14 +166,16 @@
                         <input id="coverImageUrlInput" style="width: 68%;" type="text" name="coverImageUrlInput">
                         <button id="clearCoverImageUrlButton">__MSG_button_Clear_Url__</button>
                     </td>
-                    <td rowspan="2">   <img id="sampleCoverImg" /></td>
+                    <td rowspan="2">   <img id="sampleCoverImg" hidden="true" /></td>
                 </tr>
             </table>
 
             <div class="progressSection">
                 <button id="packEpubButton" class="expandedButton">__MSG_button_Pack_EPUB__</button>
-                <progress id="fetchProgress" value=" 0" max="1"></progress>
-                <span id="progressString"></span>
+                <div class="progressMeter">
+                    <progress id="fetchProgress" value=" 0" max="1"></progress>
+                    <span id="progressString"></span>
+                </div>
                 <button data-libclick="yes" id="LibAddToLibrary" class="expandedButton">__MSG_button_Add_to_Library__</button>
                 <button data-libclick="yes" id="LibPauseToLibrary" class="expandedButton" hidden="true">__MSG_button_Pause_to_Library__</button>
             </div>
@@ -160,6 +184,7 @@
                 <button id="advancedOptionsButton">__MSG_button_Advanced_Options__</button>
             </div>
             <section id="hiddenBibSection" hidden="true">
+                <h2 class="ns-section-title">Library</h2>
                 <div id="LibraryTemplate" hidden="true">
                     <br>
                     <table>
@@ -260,6 +285,7 @@
             </section>
 
             <section id="advancedOptionsSection" hidden="true">
+                <h2 class="ns-section-title">Advanced Options</h2>
                 <table id="AdditionalMetadatatable">
                     <tr>
                         <td>__MSG_label_Metadata_URL__</td>
@@ -503,7 +529,8 @@
             </section>
         </section>
         <section id="testSection"></section>
-        <section id="imageSection" hidden="true">
+            <section id="imageSection" hidden="true">
+            <h2 class="ns-section-title">Images</h2>
             <table id="imageOptionsTable">
                 <tr id="duplicateImagesRow">
                     <td>__MSG_label_Remove_Duplicate_Images__</td>
@@ -519,6 +546,7 @@
             </div>
         </section>
         <section id="outputSection" class="minWidth">
+            <h2 class="ns-section-title">2. Chapter Selection</h2>
             <div id="chapterSelectControlsDiv">
                 <table id="rangeSelectTable">
                     <tr id="rangeStartChapterRow">
@@ -530,7 +558,7 @@
                     <tr id="rangeEndChapterRow">
                         <td>__MSG_label_Range_End_Chapter__</td>
                         <td><select id="selectRangeEndChapter" /></td>
-                        <td colspan="2">&nbsp; <button id="viewFiltersButton">__MSG_button_View_Filters__</button></td>
+                        <td colspan="2">&nbsp;</td>
                     </tr>
                     <tr id="rangeChapterCountRow">
                         <td>__MSG_label_Chapter_Count__</td>
@@ -545,12 +573,119 @@
                         </td>
                     </tr>
                 </table>
-                <div>
-                    <button id="selectAllUrlsButton">__MSG_button_Select_All__</button>
-                    <button id="unselectAllUrlsButton">__MSG_button_Unselect_All__</button>
-                    <button id="reverseChapterUrlsOrderButton">__MSG_button_Reverse_Chapter_Urls_Order__</button>
-                    <button id="editChaptersUrlsButton">__MSG_button_Edit_Chapter_Urls__</button>
-                    <button id="copyUrlsToClipboardButton">__MSG_button_Copy_Urls_To_Clipboard__</button>
+                <div class="chapterActionBar">
+                    <div class="chapterActionPrimary">
+                        <button id="selectAllUrlsButton">Select Visible</button>
+                        <button id="unselectAllUrlsButton">Clear Visible</button>
+                        <button id="invertSelectionButton">Invert Visible</button>
+                        <button id="autoSelectChaptersButton">Auto Select Chapters</button>
+                        <button id="viewFiltersButton">__MSG_button_View_Filters__</button>
+                    </div>
+                    <details class="chapterActionSecondary">
+                        <summary>Ordering</summary>
+                        <div class="chapterActionSecondaryBody">
+                            <button id="sortChaptersAscButton">Sort Chapters 1 to N</button>
+                            <button id="sortChaptersDescButton">Sort Chapters N to 1</button>
+                            <button id="reverseChapterUrlsOrderButton">__MSG_button_Reverse_Chapter_Urls_Order__</button>
+                        </div>
+                    </details>
+                    <details class="chapterActionSecondary">
+                        <summary>More tools</summary>
+                        <div class="chapterActionSecondaryBody">
+                            <button id="editChaptersUrlsButton">__MSG_button_Edit_Chapter_Urls__</button>
+                            <button id="copyUrlsToClipboardButton">__MSG_button_Copy_Urls_To_Clipboard__</button>
+                        </div>
+                    </details>
+                </div>
+                <div id="chapterToolsControls" class="chapterToolsControls">
+                    <label>
+                        <input id="chapterOnlyCheckbox" type="checkbox" />
+                        Keep chapter links only
+                    </label>
+                </div>
+                <div id="smartSelectControls" class="smartSelectControls">
+                    <label for="smartSelectInput">Smart select</label>
+                    <input
+                        id="smartSelectInput"
+                        type="text"
+                        placeholder="Examples: 1-50, 72, prince -annexe"
+                    />
+                    <select id="smartSelectMode">
+                        <option value="include" selected="selected">Select matches</option>
+                        <option value="exclude">Unselect matches</option>
+                    </select>
+                    <button id="smartSelectApplyButton" type="button">Apply</button>
+                </div>
+                <div id="referenceGroupingControls" class="packBatchControls referenceGroupingPanel">
+                    <div class="referenceGroupingHeader">
+                        <label for="referenceSitePresetSelect">Reference sites</label>
+                        <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
+                    </div>
+                    <div class="referenceSiteSelectorWrap">
+                        <select id="referenceSitePresetSelect" class="referenceSitePresetSelect" multiple="multiple" size="5" aria-label="Reference sites">
+                            <option value="webnovel.com" selected="selected">Webnovel</option>
+                            <option value="wuxiaworld.com" selected="selected">Wuxiaworld</option>
+                            <option value="kakuyomu.jp" selected="selected">Kakuyomu</option>
+                            <option value="syosetu.com" selected="selected">Syosetu</option>
+                            <option value="baka-tsuki.org" selected="selected">Baka-Tsuki</option>
+                        </select>
+                    </div>
+                    <div class="referenceGroupingActions">
+                        <div class="referenceSitePresetActions">
+                            <button id="selectRecommendedReferenceSitesButton" type="button">All</button>
+                            <button id="clearReferenceSiteSelectionButton" type="button">None</button>
+                            <button id="analyzeReferenceSitesButton" type="button">Detect</button>
+                        </div>
+                        <div class="referenceGroupingSourceSelectWrap">
+                            <label for="referenceGroupingSourceSelect">Loaded groups</label>
+                            <select id="referenceGroupingSourceSelect">
+                                <option value="current" selected="selected">Current site groups</option>
+                            </select>
+                        </div>
+                    </div>
+                    <span id="referenceGroupingStatus" class="chapterGroupingHint" hidden="true"></span>
+                </div>
+                <div id="chapterGroupingControls" class="packBatchControls">
+                    <label for="chapterGroupingModeSelect">Chapter view</label>
+                    <select id="chapterGroupingModeSelect">
+                        <option value="flat" selected="selected">Flat chapter list</option>
+                        <option value="groups">Detected groups</option>
+                        <option value="volumes">Volumes / books</option>
+                    </select>
+                    <label class="chapterGroupingToggle" for="collapseChapterGroupsCheckbox">
+                        <input
+                            id="collapseChapterGroupsCheckbox"
+                            type="checkbox"
+                            checked="checked"
+                        />
+                        Collapse groups by default
+                    </label>
+                    <span id="chapterGroupingHint" class="chapterGroupingHint" hidden="true"></span>
+                </div>
+                <div id="chapterGroupBrowserSection" class="chapterGroupBrowserSection" hidden="true">
+                    <div class="chapterGroupBrowserHeader">
+                        <div class="chapterGroupBrowserIntro">
+                            <strong id="chapterGroupBrowserTitle">Detected groups</strong>
+                            <p id="chapterGroupSummary">Mark one or more groups, then download the selection or everything.</p>
+                        </div>
+                        <div class="chapterGroupBrowserHeaderActions">
+                            <button id="expandAllChapterGroupsButton" type="button">Expand All</button>
+                            <button id="collapseAllChapterGroupsButton" type="button">Collapse All</button>
+                        </div>
+                    </div>
+                    <div id="groupPackControls" class="chapterGroupToolbar" hidden="true">
+                        <input
+                            id="chapterGroupSearchInput"
+                            type="text"
+                            placeholder="Filter groups, sections, or ranges"
+                            aria-label="Filter groups"
+                        />
+                        <select id="chapterGroupSelect" aria-label="Current group"></select>
+                        <button id="downloadMarkedChapterGroupsButton" type="button">Download selected</button>
+                        <button id="downloadAllChapterGroupsButton" type="button">Download all</button>
+                    </div>
+                    <div id="chapterGroupEmptyState" class="chapterGroupEmptyState" hidden="true"></div>
+                    <div id="chapterGroupBrowser" class="chapterGroupBrowser"></div>
                 </div>
             </div>
             <button id="applyChangesButton" hidden="true">__MSG_button_Apply_Changes__</button>
@@ -570,17 +705,16 @@
         </section>
     </div>
 
-    <div id="sbOptions" class="sidebar">
-        <div width="100%" id="sbClose" class="closebtn">&#x274c;</div>
-        <section id="sbFilters" hidden="true">
-            <table style="width:100%;">
-                <tr>
-                    <th colspan="2">__MSG_button_View_Filters__</th>
-                </tr>
-            </table>
-            <form id="sbFiltersForm" disabled> </form>
-        </section>
-        <!-- Create new sections for new or moved data such as Advanced Options or Reading List -->
+    <div id="sbOptions" class="sidebar" aria-hidden="true">
+        <div class="sidebarPanel">
+            <div class="sidebarHeader">
+                <h3>Chapter Filters</h3>
+                <button id="sbClose" class="closebtn" type="button" aria-label="Close filters">x</button>
+            </div>
+            <section id="sbFilters" hidden="true">
+                <form id="sbFiltersForm"></form>
+            </section>
+        </div>
     </div>
 
     <span id="scriptContainer">
@@ -607,6 +741,7 @@
 
         <!-- These parsers are (or might be) used as base for other pareser-->
         <script src="js/parsers/WordpressBaseParser.js"></script>
+        <script src="js/parsers/ChireadsParser.js"></script>
         <script src="js/parsers/MadaraParser.js"></script>
 
         <!-- Not used as base -->

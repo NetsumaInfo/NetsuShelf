@@ -59,15 +59,15 @@ var main = (function() {
         return document.getElementById("referenceGroupingStatus");
     }
 
-    function getReferenceSitePresetCheckboxes() {
-        return [...document.querySelectorAll("#referenceSitePresetFilters input[data-reference-host]")];
+    function getReferenceSitePresetSelect() {
+        return document.getElementById("referenceSitePresetSelect");
+    }
+
+    function getReferenceSitePresetOptions() {
+        return [...(getReferenceSitePresetSelect()?.options ?? [])];
     }
 
     function syncReferenceSiteChipVisualState() {
-        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
-            checkbox.closest(".referenceSiteChip")
-                ?.classList.toggle("referenceSiteChipActive", checkbox.checked);
-        });
     }
 
     function setReferenceGroupingStatus(message, state = "info") {
@@ -82,16 +82,16 @@ var main = (function() {
 
     function readSelectedReferenceSiteHostsFromUi() {
         return new Set(
-            getReferenceSitePresetCheckboxes()
-                .filter(checkbox => checkbox.checked)
-                .map(checkbox => checkbox.dataset.referenceHost)
+            getReferenceSitePresetOptions()
+                .filter(option => option.selected)
+                .map(option => option.value)
         );
     }
 
     function setSelectedReferenceSiteHosts(hosts) {
         let selectedHosts = hosts instanceof Set ? hosts : new Set(hosts ?? []);
-        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
-            checkbox.checked = selectedHosts.has(checkbox.dataset.referenceHost);
+        getReferenceSitePresetOptions().forEach((option) => {
+            option.selected = selectedHosts.has(option.value);
         });
         syncReferenceSiteChipVisualState();
     }
@@ -2524,8 +2524,9 @@ var main = (function() {
         }
         document.getElementById("analyzeReferenceSitesButton").onclick = analyzeReferenceGroupingSources;
         document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
-        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
-            checkbox.onchange = () => {
+        let referenceSitePresetSelect = getReferenceSitePresetSelect();
+        if (referenceSitePresetSelect != null) {
+            referenceSitePresetSelect.onchange = () => {
                 syncReferenceSiteChipVisualState();
                 clearReferenceGroupingSources({
                     preserveStatus: true,
@@ -2533,7 +2534,7 @@ var main = (function() {
                 });
                 scheduleAutomaticReferenceGroupingAnalysis({ force: true });
             };
-        });
+        }
         document.getElementById("selectRecommendedReferenceSitesButton").onclick = () => {
             setSelectedReferenceSiteHosts(reliableReferenceSites);
             scheduleAutomaticReferenceGroupingAnalysis({ force: true, immediate: true });

@@ -618,17 +618,30 @@
                 </div>
                 <div id="referenceGroupingControls" class="packBatchControls referenceGroupingPanel">
                     <div class="referenceGroupingHeader">
-                        <label for="referenceSitePresetSelect">Reference sites</label>
+                        <label for="referenceGroupingSourceSelect">Reference sites</label>
                         <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
                     </div>
-                    <div class="referenceSiteSelectorWrap">
-                        <select id="referenceSitePresetSelect" class="referenceSitePresetSelect" multiple="multiple" size="5" aria-label="Reference sites">
-                            <option value="webnovel.com" selected="selected">Webnovel</option>
-                            <option value="wuxiaworld.com" selected="selected">Wuxiaworld</option>
-                            <option value="kakuyomu.jp" selected="selected">Kakuyomu</option>
-                            <option value="syosetu.com" selected="selected">Syosetu</option>
-                            <option value="baka-tsuki.org" selected="selected">Baka-Tsuki</option>
-                        </select>
+                    <div id="referenceSitePresetFilters" class="referenceSiteChipRow">
+                        <label class="referenceSiteChip">
+                            <input type="checkbox" data-reference-host="webnovel.com" checked="checked" />
+                            <span>Webnovel</span>
+                        </label>
+                        <label class="referenceSiteChip">
+                            <input type="checkbox" data-reference-host="wuxiaworld.com" checked="checked" />
+                            <span>Wuxiaworld</span>
+                        </label>
+                        <label class="referenceSiteChip">
+                            <input type="checkbox" data-reference-host="kakuyomu.jp" checked="checked" />
+                            <span>Kakuyomu</span>
+                        </label>
+                        <label class="referenceSiteChip">
+                            <input type="checkbox" data-reference-host="syosetu.com" checked="checked" />
+                            <span>Syosetu</span>
+                        </label>
+                        <label class="referenceSiteChip">
+                            <input type="checkbox" data-reference-host="baka-tsuki.org" checked="checked" />
+                            <span>Baka-Tsuki</span>
+                        </label>
                     </div>
                     <div class="referenceGroupingActions">
                         <div class="referenceSitePresetActions">

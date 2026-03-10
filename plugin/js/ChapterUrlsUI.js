@@ -1050,7 +1050,7 @@ class ChapterUrlsUI {
 
         let title = document.createElement("span");
         title.className = "chapterGroupChapterTitle";
-        title.textContent = chapter.title;
+        title.textContent = ChapterUrlsUI.formatChapterGroupItemTitle(chapter, chapterNumber);
         details.appendChild(title);
 
         label.appendChild(details);
@@ -1573,6 +1573,31 @@ class ChapterUrlsUI {
 
     static extractChapterNumber(chapter) {
         return util.extractChapterNumber(chapter);
+    }
+
+    static formatChapterGroupItemTitle(chapter, chapterNumber) {
+        let title = chapter?.title ?? "";
+        if ((chapterNumber == null) || util.isNullOrEmpty(title)) {
+            return title;
+        }
+
+        let escapedNumber = String(chapterNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        let leadingChapterPattern = new RegExp(
+            `^(?:chapter|chapitre|chap|ch|episode|ep|part|pt|book|volume|vol)\\s*#?${escapedNumber}\\b\\s*[:\\-.–—]*\\s*`,
+            "i"
+        );
+        let strippedTitle = title.replace(leadingChapterPattern, "").trim();
+        if (!util.isNullOrEmpty(strippedTitle) && (strippedTitle !== title)) {
+            return strippedTitle;
+        }
+
+        let leadingNumberPattern = new RegExp(`^#?${escapedNumber}\\b\\s*[:\\-.–—]*\\s*`, "i");
+        strippedTitle = title.replace(leadingNumberPattern, "").trim();
+        if (!util.isNullOrEmpty(strippedTitle) && (strippedTitle !== title)) {
+            return strippedTitle;
+        }
+
+        return title;
     }
 
     static isLikelyChapter(chapter) {

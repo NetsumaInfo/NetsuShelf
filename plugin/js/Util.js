@@ -26,21 +26,42 @@ const util = (function() {
     }
 
     function isFirefox() {
-        if (navigator.brave && navigator.brave.isBrave)
-        {
+        if (navigator.brave && navigator.brave.isBrave) {
             return false;
         }
-        else if (typeof (browser) === "undefined")
-        {
-            // old version of chrome
+        if (typeof browser === "undefined") {
             return false;
         }
-        else
-        {
-            // this only works as long as firefox hasn't implemented this 
-            // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/runtime/PlatformNaclArch
-            return (typeof (browser.runtime.PlatformNaclArch) == "undefined");
+        return navigator.userAgent.includes("Firefox/");
+    }
+
+    function createSvgIcon(viewBox, attributes = {}) {
+        let svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", viewBox);
+        svg.setAttribute("aria-hidden", "true");
+        svg.setAttribute("focusable", "false");
+        for (const [name, value] of Object.entries(attributes)) {
+            svg.setAttribute(name, value);
         }
+        return svg;
+    }
+
+    function appendSvgPath(parent, attributes = {}) {
+        let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        for (const [name, value] of Object.entries(attributes)) {
+            path.setAttribute(name, value);
+        }
+        parent.appendChild(path);
+        return path;
+    }
+
+    function appendSvgCircle(parent, attributes = {}) {
+        let circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        for (const [name, value] of Object.entries(attributes)) {
+            circle.setAttribute(name, value);
+        }
+        parent.appendChild(circle);
+        return circle;
     }
 
     function extensionVersion() {
@@ -1731,6 +1752,9 @@ const util = (function() {
         replaceSemanticInlineStylesWithTags: replaceSemanticInlineStylesWithTags,
         wrapInnerContentInTag: wrapInnerContentInTag,
         getDefaultExtensionByMime: getDefaultExtensionByMime,
-        detectMimeType: detectMimeType
+        detectMimeType: detectMimeType,
+        createSvgIcon: createSvgIcon,
+        appendSvgPath: appendSvgPath,
+        appendSvgCircle: appendSvgCircle
     };
 })();

@@ -80,7 +80,10 @@ class Download {
         } else {
             Download.saveOn = Download.saveOnChrome;
             chrome.downloads.onChanged.addListener(Download.onChanged);
-            chrome.downloads.onDeterminingFilename?.addListener?.(Download.onDeterminingFilename);
+            let filenameEvent = chrome.downloads?.["onDeterminingFilename"];
+            if (typeof filenameEvent?.addListener === "function") {
+                filenameEvent.addListener(Download.onDeterminingFilename);
+            }
         }
     }
 

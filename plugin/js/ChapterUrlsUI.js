@@ -762,12 +762,14 @@ class ChapterUrlsUI {
         button.title = "Download this chapter now";
         button.setAttribute("aria-label", "Download chapter");
         button.disabled = chapter.isSelectable === false;
-        button.innerHTML = [
-            "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\">",
-            "<path d=\"M12 3a1 1 0 0 1 1 1v8.59l2.3-2.29a1 1 0 1 1 1.4 1.41l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.41L11 12.59V4a1 1 0 0 1 1-1Z\"/>",
-            "<path d=\"M5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z\"/>",
-            "</svg>"
-        ].join("");
+        let icon = util.createSvgIcon("0 0 24 24");
+        util.appendSvgPath(icon, {
+            d: "M12 3a1 1 0 0 1 1 1v8.59l2.3-2.29a1 1 0 1 1 1.4 1.41l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.41L11 12.59V4a1 1 0 0 1 1-1Z"
+        });
+        util.appendSvgPath(icon, {
+            d: "M5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"
+        });
+        button.replaceChildren(icon);
         button.onclick = (event) => {
             event.preventDefault();
             event.stopPropagation();

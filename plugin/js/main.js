@@ -2881,9 +2881,24 @@ var main = (function() {
 
         let isDarkActive = document.body.classList.contains("ns-theme-dark-active");
         button.dataset.mode = isDarkActive ? "light" : "dark";
-        button.innerHTML = isDarkActive
-            ? "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"4\"></circle><path d=\"M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77\"></path></svg>"
-            : "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z\"></path></svg>";
+        let icon = util.createSvgIcon("0 0 24 24", {
+            fill: "none",
+            stroke: "currentColor",
+            "stroke-width": "1.8",
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round"
+        });
+        if (isDarkActive) {
+            util.appendSvgCircle(icon, { cx: "12", cy: "12", r: "4" });
+            util.appendSvgPath(icon, {
+                d: "M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"
+            });
+        } else {
+            util.appendSvgPath(icon, {
+                d: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 1 0 9.8 9.8Z"
+            });
+        }
+        button.replaceChildren(icon);
         let label = isDarkActive ? "Switch to light mode" : "Switch to dark mode";
         button.title = label;
         button.setAttribute("aria-label", label);

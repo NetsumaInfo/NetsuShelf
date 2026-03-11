@@ -431,6 +431,92 @@ progress::-moz-progress-bar {
     transform: rotate(12deg);
 }
 
+.chapterWorkflowLayout {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.chapterWorkflowBlock {
+    display: grid;
+    gap: 0.7rem;
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    border-radius: 0.85rem;
+    background: rgba(255, 255, 255, 0.82);
+    padding: 0.85rem;
+}
+
+.chapterWorkflowBlockSummary {
+    list-style: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.chapterWorkflowBlockSummary::-webkit-details-marker {
+    display: none;
+}
+
+.chapterWorkflowBlockSummary::before {
+    content: "▾";
+    margin-top: 0.05rem;
+    font-size: 0.76rem;
+    line-height: 1;
+    color: #64748b;
+    transition: transform 0.16s ease;
+}
+
+.chapterWorkflowBlock:not([open]) > .chapterWorkflowBlockSummary::before {
+    transform: rotate(-90deg);
+}
+
+.chapterWorkflowBlockSummaryText {
+    display: grid;
+    gap: 0.22rem;
+}
+
+.chapterWorkflowBlockBody {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.chapterWorkflowBlockLead {
+    display: block;
+    font-size: 0.73rem;
+    line-height: 1.05rem;
+    color: #64748b;
+}
+
+.chapterWorkflowBlockTitle {
+    display: block;
+    margin: 0;
+    font-size: 0.84rem;
+    line-height: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #0f172a;
+}
+
+.chapterWorkflowBlock #rangeSelectTable {
+    margin-top: 0;
+}
+
+.chapterWorkflowBlock .chapterActionBar,
+.chapterWorkflowBlock .chapterToolsControls,
+.chapterWorkflowBlock .smartSelectControls,
+.chapterWorkflowBlock .packBatchControls {
+    margin-top: 0;
+}
+
+.chapterWorkflowBlockGroups #chapterGroupBrowserSection {
+    margin-top: 0;
+    padding: 0.9rem;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 0.8rem;
+    background: rgba(255, 255, 255, 0.9);
+}
+
 .referenceGroupingPanel {
     display: grid;
     grid-template-areas:
@@ -626,6 +712,28 @@ body.ns-theme-dark-active .chapterGroupMarkButton[data-state="unselected"] {
     border-color: rgba(251, 113, 133, 0.54);
     background: #fb7185;
     box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.14);
+}
+
+body.ns-theme-dark-active .chapterWorkflowBlock {
+    border-color: #263a56;
+    background: #0f1b30;
+}
+
+body.ns-theme-dark-active .chapterWorkflowBlockTitle {
+    color: #e2e8f0;
+}
+
+body.ns-theme-dark-active .chapterWorkflowBlockLead {
+    color: #9fb3d1;
+}
+
+body.ns-theme-dark-active .chapterWorkflowBlockSummary::before {
+    color: #9fb3d1;
+}
+
+body.ns-theme-dark-active .chapterWorkflowBlockGroups #chapterGroupBrowserSection {
+    border-color: #263a56;
+    background: #0d1628;
 }
 
 body.ns-theme-dark-active .referenceSiteChip span {

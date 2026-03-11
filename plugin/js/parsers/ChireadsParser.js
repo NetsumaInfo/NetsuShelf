@@ -95,6 +95,26 @@ class ChireadsParser extends WordpressBaseParser {
         return rawTitle;
     }
 
+    extractAuthor(dom) {
+        let infoNode = dom.querySelector(".inform-inform-data h6")
+            || dom.querySelector(".inform-inform-data");
+        if (infoNode != null) {
+            let infoText = (infoNode.textContent ?? "")
+                .replace(/&nbsp;/gi, " ")
+                .replace(/\u00a0/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            let authorMatch = infoText.match(
+                /(?:Auteur|Author)\s*:\s*(.+?)(?=\s*(?:Traducteur|Translator|Statut|Status)\s*:|$)/i
+            );
+            let author = authorMatch?.[1]?.trim();
+            if (!util.isNullOrEmpty(author)) {
+                return author;
+            }
+        }
+        return super.extractAuthor(dom);
+    }
+
     linkToChapter(link, groupInfo = null) {
         if ((link == null) || util.isNullOrEmpty(link.href)) {
             return null;

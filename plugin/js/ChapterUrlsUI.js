@@ -41,7 +41,10 @@ class ChapterUrlsUI {
         document.getElementById("copyUrlsToClipboardButton").onclick = this.copyUrlsToClipboard.bind(this);
         document.getElementById("sortChaptersAscButton").onclick = this.sortByChapterAscending.bind(this);
         document.getElementById("sortChaptersDescButton").onclick = this.sortByChapterDescending.bind(this);
-        document.getElementById("chapterOnlyCheckbox").onchange = this.onChapterOnlyToggle.bind(this);
+        let chapterOnlyCheckbox = document.getElementById("chapterOnlyCheckbox");
+        if (chapterOnlyCheckbox != null) {
+            chapterOnlyCheckbox.onchange = this.onChapterOnlyToggle.bind(this);
+        }
         document.getElementById("showChapterUrlsCheckbox").onclick = this.toggleShowUrlsForChapterRanges.bind(this);
         let smartSelectApplyButton = document.getElementById("smartSelectApplyButton");
         if (smartSelectApplyButton != null) {
@@ -84,7 +87,22 @@ class ChapterUrlsUI {
         if (collapseAllChapterGroupsButton != null) {
             collapseAllChapterGroupsButton.onclick = this.collapseAllChapterGroups.bind(this);
         }
+        this.connectRangeChapterSelectHandlers();
         ChapterUrlsUI.modifyApplyChangesButtons(button => button.onclick = this.setTableMode.bind(this));
+    }
+
+    connectRangeChapterSelectHandlers() {
+        [ChapterUrlsUI.getRangeStartChapterSelect(), ChapterUrlsUI.getRangeEndChapterSelect()]
+            .filter(select => select != null)
+            .forEach((select) => {
+                if (select.dataset.numericChapterJumpBound === "true") {
+                    return;
+                }
+                select.addEventListener("keydown", ChapterUrlsUI.onRangeSelectKeyDown);
+                select.addEventListener("blur", ChapterUrlsUI.resetRangeSelectTypeAhead);
+                select.addEventListener("change", ChapterUrlsUI.resetRangeSelectTypeAhead);
+                select.dataset.numericChapterJumpBound = "true";
+            });
     }
 
     populateChapterUrlsTable(chapters) {
@@ -291,6 +309,95 @@ class ChapterUrlsUI {
     static selectionToRowIndex(selectElement) {
         let selectedIndex = selectElement.selectedIndex;
         return selectedIndex + 1;
+    }
+
+    static onRangeSelectKeyDown(event) {
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+
+        let select = event.currentTarget;
+        if (select == null) {
+            return;
+        }
+
+        if (event.key === "Escape") {
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            return;
+        }
+
+        if (event.key === "Backspace") {
+            let currentQuery = select.dataset.chapterJumpQuery ?? "";
+            if (currentQuery === "") {
+                return;
+            }
+            event.preventDefault();
+            let nextQuery = currentQuery.slice(0, -1);
+            if (nextQuery === "") {
+                ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+                return;
+            }
+            ChapterUrlsUI.storeRangeSelectTypeAhead(select, nextQuery);
+            ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, nextQuery);
+            return;
+        }
+
+        if (/^\d$/.test(event.key) === false) {
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            return;
+        }
+
+        event.preventDefault();
+        let query = ChapterUrlsUI.buildRangeSelectTypeAheadQuery(select, event.key);
+        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query);
+    }
+
+    static buildRangeSelectTypeAheadQuery(select, digit) {
+        let previousQuery = select.dataset.chapterJumpQuery ?? "";
+        let previousTimestamp = parseInt(select.dataset.chapterJumpTimestamp ?? "0", 10);
+        let now = Date.now();
+        let query = ((now - previousTimestamp) > ChapterUrlsUI.RANGE_SELECT_BUFFER_RESET_MS)
+            ? digit
+            : previousQuery + digit;
+        ChapterUrlsUI.storeRangeSelectTypeAhead(select, query);
+        return query;
+    }
+
+    static storeRangeSelectTypeAhead(select, query) {
+        select.dataset.chapterJumpQuery = query;
+        select.dataset.chapterJumpTimestamp = String(Date.now());
+    }
+
+    static resetRangeSelectTypeAhead(eventOrSelect) {
+        let select = eventOrSelect?.currentTarget ?? eventOrSelect;
+        if (select == null) {
+            return;
+        }
+        delete select.dataset.chapterJumpQuery;
+        delete select.dataset.chapterJumpTimestamp;
+    }
+
+    static selectRangeOptionFromNumericQuery(select, query) {
+        let visibleOptions = [...select.options].filter(option => !option.hidden);
+        if (visibleOptions.length === 0) {
+            return;
+        }
+
+        let exactMatch = visibleOptions.find(option => option.dataset.chapterNumber === query);
+        let matchedOption = exactMatch ?? visibleOptions.find(option => {
+            let chapterNumber = option.dataset.chapterNumber ?? "";
+            return chapterNumber.startsWith(query);
+        });
+        if (matchedOption == null) {
+            return;
+        }
+
+        if (select.selectedIndex === matchedOption.index) {
+            return;
+        }
+
+        select.selectedIndex = matchedOption.index;
+        ChapterUrlsUI.onRangeChanged();
     }
 
     /** @private */
@@ -562,6 +669,7 @@ class ChapterUrlsUI {
 
     static appendOptionToSelect(select, value, chapter, memberForTextOption) {
         let option = new Option(chapter[memberForTextOption], value);
+        option.dataset.chapterNumber = String(value + 1);
         select.add(option);
     }
 
@@ -1874,5 +1982,6 @@ ChapterUrlsUI.TooltipForSate = [
     UIText.Chapter.tooltipChapterPreviouslyDownloaded
 ];
 
+ChapterUrlsUI.RANGE_SELECT_BUFFER_RESET_MS = 900;
 ChapterUrlsUI.lastSelectedRow = null;
 ChapterUrlsUI.ConsecutiveRowClicks = 0;

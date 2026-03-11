@@ -286,8 +286,18 @@ class Download {
             cleanup();
             reject(Download.toUserFacingError(chrome.runtime.lastError));
         } else {
-            Download.onDownloadStarted(downloadId, 
-                () => { 
+            Download.onDownloadStarted(downloadId,
+                (delta) => {
+                    if (delta?.state?.current === "interrupted") {
+                        cleanup();
+                        let reason = delta?.error?.current ?? "USER_CANCELED";
+                        if (reason === "USER_CANCELED") {
+                            reject(new DOMException("The user aborted a request.", "AbortError"));
+                        } else {
+                            reject(new Error(`Download interrupted (${reason}).`));
+                        }
+                        return;
+                    }
                     const tenSeconds = 10 * 1000;
                     setTimeout(cleanup, tenSeconds);
                     resolve();
@@ -349,11 +359,12 @@ class Download {
     }
 
     static onChanged(delta) {
-        if ((delta.state != null) && (delta.state.current === "complete")) {
+        if ((delta.state != null)
+            && ((delta.state.current === "complete") || (delta.state.current === "interrupted"))) {
             let action = Download.toCleanup.get(delta.id);
             if (action != null) {
                 Download.toCleanup.delete(delta.id);
-                action();
+                action(delta);
             }
         }
     }

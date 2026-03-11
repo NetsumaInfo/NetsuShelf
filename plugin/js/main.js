@@ -28,6 +28,7 @@ var main = (function() {
     let referenceGroupingAnalysisSequence = 0;
     let progressActionState = { isBusy: false, actionMode: "pack", requestedStopReason: null };
     let storyDownloadSession = null;
+    let popupHeightResizeObserver = null;
     let reliableReferenceSites = [
         "webnovel.com",
         "wuxiaworld.com",
@@ -926,7 +927,7 @@ var main = (function() {
         normalizeMetaInfoFileName(metaInfo);
         setUiFieldToValue("startingUrlInput", metaInfo.uuid);
         setUiFieldToValue("titleInput", metaInfo.title);
-        setUiFieldToValue("authorInput", metaInfo.author);
+        setUiFieldToValue("authorInput", normalizeAuthorValue(metaInfo.author));
         setUiFieldToValue("languageInput", metaInfo.language);
         setUiFieldToValue("fileNameInput", metaInfo.fileName);
         setUiFieldToValue("subjectInput", metaInfo.subject);
@@ -956,7 +957,7 @@ var main = (function() {
         let metaInfo = new EpubMetaInfo();
         metaInfo.uuid = getValueFromUiField("startingUrlInput");
         metaInfo.title = getValueFromUiField("titleInput");
-        metaInfo.author = getValueFromUiField("authorInput");
+        metaInfo.author = normalizeAuthorValue(getValueFromUiField("authorInput"));
         metaInfo.language = getValueFromUiField("languageInput");
         metaInfo.fileName = getValueFromUiField("fileNameInput");
         metaInfo.subject = getValueFromUiField("subjectInput");
@@ -975,12 +976,165 @@ var main = (function() {
         return metaInfo;
     }
 
+    function isUnknownAuthor(value) {
+        let normalized = (value ?? "").trim().toLocaleLowerCase();
+        return (normalized === "<unknown>")
+            || (normalized === "unknown")
+            || (normalized === "(unknown)");
+    }
+
+    function normalizeAuthorValue(value) {
+        if (value == null) {
+            return null;
+        }
+        let trimmed = value.trim();
+        if (util.isNullOrEmpty(trimmed) || isUnknownAuthor(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    function countNonAsciiCharacters(value) {
+        return [...(value ?? "")]
+            .filter(character => character.charCodeAt(0) > 127)
+            .length;
+    }
+
+    function titleAsciiWordTokens(value) {
+        return (value ?? "")
+            .toLowerCase()
+            .split(/[^a-z]+/g)
+            .filter(token => token.length > 0);
+    }
+
+    function extractEnglishTitleCandidate(title) {
+        let rawTitle = (title ?? "").trim();
+        if (rawTitle === "") {
+            return "";
+        }
+
+        let pipeSegments = rawTitle
+            .split(/\s*\|\s*/g)
+            .map(segment => segment.trim())
+            .filter(segment => !util.isNullOrEmpty(segment));
+        if (pipeSegments.length > 1) {
+            let explicitEnglishSegment = pipeSegments
+                .slice(1)
+                .find(segment =>
+                    (countNonAsciiCharacters(segment) === 0)
+                    && ((segment.match(/[A-Za-z]/g) ?? []).length >= 3)
+                );
+            if (!util.isNullOrEmpty(explicitEnglishSegment)) {
+                return explicitEnglishSegment;
+            }
+        }
+
+        let splitSegments = rawTitle
+            .split(/\s*(?:\||\/|\\|•|·|｜|／| - | — | – )\s*/g)
+            .map(segment => segment.trim())
+            .filter(segment => !util.isNullOrEmpty(segment));
+        let englishSignalWords = new Set([
+            "the", "a", "an", "and", "of", "to", "in", "on", "for", "from",
+            "with", "without", "that", "this", "my", "your", "his", "her",
+            "our", "their", "at", "into", "over", "under", "after", "before",
+            "is", "are"
+        ]);
+        let frenchSignalWords = new Set([
+            "le", "la", "les", "de", "des", "du", "un", "une", "et", "dans",
+            "sur", "avec", "sans", "pour", "que", "cet", "ce", "cette"
+        ]);
+        let firstSegmentHasNonAscii = countNonAsciiCharacters(splitSegments[0] ?? "") > 0;
+        let candidates = [rawTitle, ...splitSegments];
+        let scoredCandidates = candidates
+            .map((candidate, candidateIndex) => {
+                let latinCharacterCount = (candidate.match(/[A-Za-z]/g) ?? []).length;
+                let nonAsciiCharacterCount = countNonAsciiCharacters(candidate);
+                let wordTokens = titleAsciiWordTokens(candidate);
+                let englishHintCount = wordTokens
+                    .filter(token => englishSignalWords.has(token))
+                    .length;
+                let frenchHintCount = wordTokens
+                    .filter(token => frenchSignalWords.has(token))
+                    .length;
+                let preferredFollowupSegmentBonus = (candidateIndex > 1)
+                    && firstSegmentHasNonAscii
+                    && (nonAsciiCharacterCount === 0)
+                    ? 6
+                    : 0;
+                let score = (englishHintCount * 12)
+                    - (frenchHintCount * 8)
+                    + (latinCharacterCount * 1.5)
+                    - (nonAsciiCharacterCount * 4)
+                    + preferredFollowupSegmentBonus
+                    + (Math.min(candidate.length, 40) * 0.03);
+                return {
+                    candidate: candidate,
+                    latinCharacterCount: latinCharacterCount,
+                    nonAsciiCharacterCount: nonAsciiCharacterCount,
+                    englishHintCount: englishHintCount,
+                    frenchHintCount: frenchHintCount,
+                    score: score
+                };
+            })
+            .filter(entry => entry.latinCharacterCount > 0)
+            .sort((left, right) => {
+                if (right.score !== left.score) {
+                    return right.score - left.score;
+                }
+                if (right.englishHintCount !== left.englishHintCount) {
+                    return right.englishHintCount - left.englishHintCount;
+                }
+                if (left.nonAsciiCharacterCount !== right.nonAsciiCharacterCount) {
+                    return left.nonAsciiCharacterCount - right.nonAsciiCharacterCount;
+                }
+                if (left.frenchHintCount !== right.frenchHintCount) {
+                    return left.frenchHintCount - right.frenchHintCount;
+                }
+                if (right.latinCharacterCount !== left.latinCharacterCount) {
+                    return right.latinCharacterCount - left.latinCharacterCount;
+                }
+                return right.candidate.length - left.candidate.length;
+            });
+        return scoredCandidates[0]?.candidate ?? "";
+    }
+
+    function preferredFileNameStemFromTitle(title, fallback = "download") {
+        let titleFallback = Download.sanitizeFileStem(title, fallback);
+        let englishCandidate = extractEnglishTitleCandidate(title);
+        return Download.sanitizeFileStem(englishCandidate, titleFallback);
+    }
+
+    function syncFileNameWithTitle() {
+        let fileNameInput = document.getElementById("fileNameInput");
+        if (fileNameInput == null) {
+            return;
+        }
+        let title = getValueFromUiField("titleInput");
+        fileNameInput.value = preferredFileNameStemFromTitle(title, "download");
+    }
+
+    function looksLikeLegacyTruncatedTitleStem(fileName) {
+        let stem = Download.stripKnownExtension(fileName ?? "");
+        return stem.includes("...");
+    }
+
     function normalizeMetaInfoFileName(metaInfo) {
         if (metaInfo == null) {
             return;
         }
-        let fallback = Download.sanitizeFileStem(metaInfo.title, "download");
-        if (util.isNullOrEmpty(metaInfo.fileName) || Download.looksLikeOpaqueFileStem(metaInfo.fileName)) {
+        metaInfo.author = normalizeAuthorValue(metaInfo.author);
+
+        let fallback = preferredFileNameStemFromTitle(metaInfo.title, "download");
+        let normalizedTitleStem = Download.sanitizeFileStem(metaInfo.title, fallback);
+        let normalizedCurrentStem = Download.sanitizeFileStem(
+            Download.stripKnownExtension(metaInfo.fileName ?? ""),
+            fallback
+        );
+        let shouldUsePreferredTitleStem = util.isNullOrEmpty(metaInfo.fileName)
+            || Download.looksLikeOpaqueFileStem(metaInfo.fileName)
+            || looksLikeLegacyTruncatedTitleStem(metaInfo.fileName)
+            || (normalizedCurrentStem === normalizedTitleStem);
+        if (shouldUsePreferredTitleStem) {
             metaInfo.fileName = fallback;
             return;
         }
@@ -1023,6 +1177,7 @@ var main = (function() {
             pauseButton.textContent = cancelActionLabel();
             pauseButton.title = "Cancel current download.";
             pauseButton.hidden = true;
+            pauseButton.disabled = true;
         }
 
         return unsupportedMessage;
@@ -1049,87 +1204,65 @@ var main = (function() {
         setProgressButtonState(packButton, { hidden: false, disabled: packButton.disabled });
         setProgressButtonState(addButton, { hidden: false, disabled: addButton.disabled });
 
+        let activeActionMode = null;
+        let activePhase = "fetching";
+        let activeIsRunningSession = false;
+        let isCancelPending = false;
+        let isFinalizing = false;
+        let cancelTitle = "Stop the current download run.";
+
         if (storyDownloadSession?.status === "running") {
-            let actionMode = storyDownloadSession.actionMode ?? "pack";
-            let phase = storyDownloadSession.phase ?? "fetching";
-            let requestedStopReason = storyDownloadSession.requestedStopReason;
-            let isCancelPending = requestedStopReason === "cancel";
-            let isFinalizing = phase === "finalizing";
-            let cancelLabel = isFinalizing
-                ? progressStatusLabel(actionMode, phase)
-                : (isCancelPending ? cancellingActionLabel() : cancelActionLabel());
-            let cancelTitle = isFinalizing
+            activeActionMode = storyDownloadSession.actionMode ?? "pack";
+            activePhase = storyDownloadSession.phase ?? "fetching";
+            activeIsRunningSession = true;
+            isCancelPending = storyDownloadSession.requestedStopReason === "cancel";
+            isFinalizing = activePhase === "finalizing";
+            cancelTitle = isFinalizing
                 ? "The file is being finalized. Wait for it to finish."
                 : (isCancelPending
                     ? "The current download is being cancelled."
                     : "Cancel the current download and clear the current progress.");
-            let statusLabel = progressStatusLabel(actionMode, phase);
+        }
 
-            if (actionMode === "library") {
-                setProgressButtonState(packButton, {
-                    hidden: false,
-                    disabled: true,
-                    text: statusLabel,
-                    title: "A library import is running."
-                });
-                setProgressButtonState(addButton, {
-                    hidden: false,
-                    disabled: isFinalizing || isCancelPending,
-                    text: cancelLabel,
-                    title: cancelTitle
-                });
-            } else {
-                setProgressButtonState(packButton, {
-                    hidden: false,
-                    disabled: isFinalizing || isCancelPending,
-                    text: cancelLabel,
-                    title: cancelTitle
-                });
-                setProgressButtonState(addButton, {
-                    hidden: false,
-                    disabled: true,
-                    text: statusLabel,
-                    title: "A download is already running."
-                });
-            }
+        if ((activeActionMode == null) && progressActionState.isBusy) {
+            activeActionMode = progressActionState.actionMode ?? "pack";
+            activePhase = "fetching";
+            isCancelPending = progressActionState.requestedStopReason === "cancel";
+            cancelTitle = isCancelPending
+                ? "The current batch download is being cancelled."
+                : "Stop the current download run.";
+        }
+
+        if (activeActionMode == null) {
             return;
         }
 
-        if (progressActionState.isBusy) {
-            let actionMode = progressActionState.actionMode ?? "pack";
-            let isCancelPending = progressActionState.requestedStopReason === "cancel";
-            let statusLabel = progressStatusLabel(actionMode, "fetching");
-            if (actionMode === "library") {
-                setProgressButtonState(packButton, {
-                    hidden: false,
-                    disabled: true,
-                    text: statusLabel,
-                    title: "A library import is running."
-                });
-                setProgressButtonState(addButton, {
-                    hidden: false,
-                    disabled: isCancelPending,
-                    text: isCancelPending ? cancellingActionLabel() : cancelActionLabel(),
-                    title: isCancelPending
-                        ? "The current batch download is being cancelled."
-                        : "Stop the current download run."
-                });
-            } else {
-                setProgressButtonState(packButton, {
-                    hidden: false,
-                    disabled: isCancelPending,
-                    text: isCancelPending ? cancellingActionLabel() : cancelActionLabel(),
-                    title: isCancelPending
-                        ? "The current batch download is being cancelled."
-                        : "Stop the current download run."
-                });
-                setProgressButtonState(addButton, {
-                    hidden: false,
-                    disabled: true,
-                    text: statusLabel,
-                    title: "A download is already running."
-                });
-            }
+        let statusLabel = progressStatusLabel(activeActionMode, activePhase);
+        setProgressButtonState(packButton, {
+            hidden: false,
+            disabled: true,
+            text: statusLabel,
+            title: (activeActionMode === "library")
+                ? "A library import is running."
+                : "A download is already running."
+        });
+        setProgressButtonState(addButton, {
+            hidden: true,
+            disabled: true
+        });
+        setProgressButtonState(pauseButton, {
+            hidden: false,
+            disabled: isFinalizing || isCancelPending,
+            text: isFinalizing
+                ? progressStatusLabel(activeActionMode, "finalizing")
+                : (isCancelPending ? cancellingActionLabel() : cancelActionLabel()),
+            title: cancelTitle
+        });
+
+        if (!activeIsRunningSession) {
+            pauseButton.title = isCancelPending
+                ? "The current batch download is being cancelled."
+                : "Stop the current download run.";
         }
     }
 
@@ -1500,6 +1633,9 @@ var main = (function() {
                     button.disabled = isBusy;
                 }
             });
+        if (isBusy) {
+            resetProgressDisplay();
+        }
         setProgressActionBusy(isBusy, actionMode);
     }
 
@@ -1527,6 +1663,7 @@ var main = (function() {
         let chapterOrder = getGlobalChapterIndexMap();
 
         ErrorLog.clearHistory();
+        clearFetchedChapterData(pagesInBatches);
         setBatchUiBusy(true, "pack");
         ChapterUrlsUI.resetDownloadStateImages();
 
@@ -1621,6 +1758,7 @@ var main = (function() {
         }
 
         ErrorLog.clearHistory();
+        clearFetchedChapterData(pages);
         setBatchUiBusy(true, "pack");
         ChapterUrlsUI.resetDownloadStateImages();
 
@@ -1685,6 +1823,7 @@ var main = (function() {
         let baseMetaInfo = metaInfoFromControls();
 
         ErrorLog.clearHistory();
+        clearFetchedChapterData(pagesInGroups);
         setBatchUiBusy(true, "pack");
         ChapterUrlsUI.resetDownloadStateImages();
 
@@ -1765,6 +1904,7 @@ var main = (function() {
         let baseMetaInfo = metaInfoFromControls();
 
         ErrorLog.clearHistory();
+        clearFetchedChapterData(pagesInGroups);
         setBatchUiBusy(true, "pack");
         ChapterUrlsUI.resetDownloadStateImages();
 
@@ -2760,6 +2900,35 @@ var main = (function() {
         window.requestAnimationFrame(updateThemeQuickToggleButton);
     }
 
+    function refreshPopupHeight() {
+        let container = document.querySelector(".container");
+        let targetHeight = Math.ceil(container?.scrollHeight ?? document.body.scrollHeight ?? 0);
+        if (!Number.isFinite(targetHeight) || (targetHeight <= 0)) {
+            return;
+        }
+        document.documentElement.style.height = `${targetHeight}px`;
+        document.body.style.height = `${targetHeight}px`;
+    }
+
+    function initializeCollapsiblePanelsAndAutoHeight() {
+        document.querySelectorAll("details[data-collapsible-panel]").forEach((panel) => {
+            panel.addEventListener("toggle", () => {
+                window.requestAnimationFrame(refreshPopupHeight);
+            });
+        });
+
+        popupHeightResizeObserver?.disconnect?.();
+        let container = document.querySelector(".container");
+        if ((container != null) && (typeof ResizeObserver === "function")) {
+            popupHeightResizeObserver = new ResizeObserver(() => {
+                window.requestAnimationFrame(refreshPopupHeight);
+            });
+            popupHeightResizeObserver.observe(container);
+        }
+
+        window.requestAnimationFrame(refreshPopupHeight);
+    }
+
     function sbFiltersShow()
     {
         sbShow();
@@ -2841,6 +3010,7 @@ var main = (function() {
         });
         getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
         document.getElementById("titleInput").addEventListener("change", () => {
+            syncFileNameWithTitle();
             clearReferenceGroupingSources({
                 preserveStatus: true,
                 preserveSiteSelection: true
@@ -2884,6 +3054,7 @@ var main = (function() {
             themeSelect.addEventListener("change", () => window.requestAnimationFrame(updateThemeQuickToggleButton));
         }
         updateThemeQuickToggleButton();
+        initializeCollapsiblePanelsAndAutoHeight();
         document.getElementById("viewReadingListButton").onclick = () => showReadingList();
         window.addEventListener("beforeunload", onUnloadEvent);
     }
@@ -2944,8 +3115,8 @@ var main = (function() {
             let metaAddInfo = EpubMetaInfo.getEpubMetaAddInfo(dom, url, allTags);
             setUiFieldToValue("subjectInput", metaAddInfo.subject);
             setUiFieldToValue("descriptionInput", metaAddInfo.description);
-            if (getValueFromUiField("authorInput")=="<unknown>") {
-                setUiFieldToValue("authorInput", metaAddInfo.author);
+            if (normalizeAuthorValue(getValueFromUiField("authorInput")) == null) {
+                setUiFieldToValue("authorInput", normalizeAuthorValue(metaAddInfo.author));
             }
             getPackEpubButton().disabled = false;
             document.getElementById("LibAddToLibrary").disabled = false;

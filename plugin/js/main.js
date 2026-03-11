@@ -1149,6 +1149,47 @@ var main = (function() {
         return getSelectedDownloadFormat() === "epub";
     }
 
+    function getChapterDownloadMode() {
+        let select = document.getElementById("chapterFileModeSelect");
+        return (select?.value === "packs") ? "packs" : "single";
+    }
+
+    function shouldUsePackDownloadMode(isLibraryAction = false) {
+        return !isLibraryAction && (getChapterDownloadMode() === "packs");
+    }
+
+    function syncChapterDownloadModeUi() {
+        let isPackMode = shouldUsePackDownloadMode();
+        let isBusy = (storyDownloadSession?.status === "running") || progressActionState.isBusy;
+        let packSizeLabel = document.getElementById("chapterPackSizeLabel");
+        let packSizeInput = document.getElementById("packSizeInput");
+        let packSizeInputWrap = document.getElementById("packSizeInputWrap");
+        let increasePackSizeButton = document.getElementById("increasePackSizeButton");
+        let decreasePackSizeButton = document.getElementById("decreasePackSizeButton");
+        let downloadModeHint = document.getElementById("chapterDownloadModeHint");
+
+        if (packSizeLabel != null) {
+            packSizeLabel.hidden = !isPackMode;
+        }
+        if (packSizeInputWrap != null) {
+            packSizeInputWrap.hidden = !isPackMode;
+        }
+        if (packSizeInput != null) {
+            packSizeInput.disabled = !isPackMode || isBusy;
+        }
+        if (increasePackSizeButton != null) {
+            increasePackSizeButton.disabled = !isPackMode || isBusy;
+        }
+        if (decreasePackSizeButton != null) {
+            decreasePackSizeButton.disabled = !isPackMode || isBusy;
+        }
+        if (downloadModeHint != null) {
+            downloadModeHint.textContent = isPackMode
+                ? `Split the selected chapters into files of ${getPackSizeFromUi() || "?"} chapters each.`
+                : "Export all selected chapters into a single file.";
+        }
+    }
+
     function applyNormalProgressActionLabels() {
         let format = getSelectedDownloadFormat();
         let formatLabel = format.toUpperCase();
@@ -1158,7 +1199,9 @@ var main = (function() {
 
         let packButton = getPackEpubButton();
         if (packButton != null) {
-            packButton.textContent = `Download ${formatLabel}`;
+            packButton.textContent = shouldUsePackDownloadMode()
+                ? `Download ${formatLabel} Packs`
+                : `Download ${formatLabel}`;
             packButton.disabled = (unsupportedMessage !== "");
             packButton.title = unsupportedMessage;
         }
@@ -1268,9 +1311,15 @@ var main = (function() {
 
     function updateDownloadFormatUi() {
         let unsupportedMessage = applyNormalProgressActionLabels();
+        let isBusy = (storyDownloadSession?.status === "running") || progressActionState.isBusy;
         let formatSelect = document.getElementById("downloadFormatSelect");
         if (formatSelect != null) {
-            formatSelect.disabled = (storyDownloadSession?.status === "running") || progressActionState.isBusy;
+            formatSelect.disabled = isBusy;
+        }
+
+        let chapterFileModeSelect = document.getElementById("chapterFileModeSelect");
+        if (chapterFileModeSelect != null) {
+            chapterFileModeSelect.disabled = isBusy;
         }
 
         let downloadMarkedGroupsButton = document.getElementById("downloadMarkedChapterGroupsButton");
@@ -1285,6 +1334,7 @@ var main = (function() {
             downloadAllGroupsButton.title = unsupportedMessage;
         }
 
+        syncChapterDownloadModeUi();
         parser?.state?.chapterUrlsUI?.syncMarkedChapterGroupsUi?.();
         syncProgressActionButtons();
     }
@@ -1335,6 +1385,23 @@ var main = (function() {
         return Number.isFinite(value) && (0 < value) ? value : 0;
     }
 
+    function adjustPackSize(delta) {
+        let input = document.getElementById("packSizeInput");
+        if (input == null) {
+            return;
+        }
+
+        let currentValue = getPackSizeFromUi();
+        let fallbackValue = parseInt(userPreferences?.chapterPackSize?.value ?? "50", 10);
+        let nextValue = Math.max(
+            parseInt(input.min || "1", 10),
+            (currentValue || fallbackValue || 1) + delta
+        );
+        input.value = `${nextValue}`;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
     function chunkPages(pages, chunkSize) {
         if ((chunkSize <= 0) || (pages.length <= chunkSize)) {
             return [pages];
@@ -1351,16 +1418,58 @@ var main = (function() {
         return Download.addExtensionForFormat(base + suffix, getSelectedDownloadFormat());
     }
 
-    function buildBatchFileName(baseFileName, batchIndex, totalBatches, firstChapterIndex, lastChapterIndex, alwaysAddSuffix) {
+    function buildArchiveFileName(baseFileName, suffix = "_downloads") {
+        let base = Download.stripKnownExtension(baseFileName);
+        return Download.normalizeProvidedFileName(`${base}${suffix}.zip`);
+    }
+
+    function getChapterRangeForPages(pages, chapterOrder = getGlobalChapterIndexMap()) {
+        if (!Array.isArray(pages) || (pages.length === 0)) {
+            return null;
+        }
+
+        let firstChapterIndex = null;
+        let lastChapterIndex = null;
+
+        for (let page of pages) {
+            let chapterIndex = chapterOrder.get(page.sourceUrl);
+            if (!Number.isFinite(chapterIndex)) {
+                continue;
+            }
+            if (firstChapterIndex == null) {
+                firstChapterIndex = chapterIndex;
+            }
+            lastChapterIndex = chapterIndex;
+        }
+
+        if ((firstChapterIndex == null) || (lastChapterIndex == null)) {
+            return null;
+        }
+
+        return { firstChapterIndex, lastChapterIndex };
+    }
+
+    function buildChapterRangeSuffix(firstChapterIndex, lastChapterIndex) {
+        if (!Number.isFinite(firstChapterIndex) || !Number.isFinite(lastChapterIndex)) {
+            return "";
+        }
+        return (firstChapterIndex === lastChapterIndex)
+            ? `_chapter_${firstChapterIndex}`
+            : `_chapters_${firstChapterIndex}_to_${lastChapterIndex}`;
+    }
+
+    function addChapterRangeToDownloadFileName(baseFileName, firstChapterIndex, lastChapterIndex) {
+        let suffix = buildChapterRangeSuffix(firstChapterIndex, lastChapterIndex);
+        return util.isNullOrEmpty(suffix)
+            ? baseFileName
+            : withDownloadFormatSuffix(baseFileName, suffix);
+    }
+
+    function buildBatchFileName(baseFileName, totalBatches, firstChapterIndex, lastChapterIndex, alwaysAddSuffix) {
         if (!alwaysAddSuffix && (totalBatches === 1)) {
             return baseFileName;
         }
-        if (totalBatches === 1) {
-            return withDownloadFormatSuffix(baseFileName, "_chapter_" + firstChapterIndex);
-        }
-        let batchNumber = String(batchIndex + 1).padStart(3, "0");
-        let suffix = "_pack_" + batchNumber + "_" + firstChapterIndex + "-" + lastChapterIndex;
-        return withDownloadFormatSuffix(baseFileName, suffix);
+        return addChapterRangeToDownloadFileName(baseFileName, firstChapterIndex, lastChapterIndex);
     }
 
     function cloneMetaInfo(metaInfo) {
@@ -1661,6 +1770,7 @@ var main = (function() {
             title: metaInfo.title
         });
         let chapterOrder = getGlobalChapterIndexMap();
+        let selectedChapterRange = getChapterRangeForPages(pagesInBatches, chapterOrder);
 
         ErrorLog.clearHistory();
         clearFetchedChapterData(pagesInBatches);
@@ -1668,6 +1778,7 @@ var main = (function() {
         ChapterUrlsUI.resetDownloadStateImages();
 
         try {
+            let builtDownloads = [];
             for (let batchIndex = 0; batchIndex < chapterBatches.length; ++batchIndex) {
                 throwIfDownloadStopped();
                 let batch = chapterBatches[batchIndex];
@@ -1675,16 +1786,11 @@ var main = (function() {
                 let lastChapterIndex = chapterOrder.get(batch[batch.length - 1].sourceUrl);
                 let fileName = buildBatchFileName(
                     baseFileName,
-                    batchIndex,
                     chapterBatches.length,
                     firstChapterIndex,
                     lastChapterIndex,
                     alwaysAddSuffix
                 );
-                let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
-                if (fileHandle === null) {
-                    return;
-                }
 
                 await withTemporaryChapterSelection(batch, async () => {
                     parser.onStartCollecting();
@@ -1692,12 +1798,31 @@ var main = (function() {
                     throwIfDownloadStopped();
                     let content = await buildDownloadContent(metaInfo);
                     throwIfDownloadStopped();
-                    await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                    builtDownloads.push({ fileName, content });
                     throwIfDownloadStopped();
                 });
                 if (shouldStopCurrentDownload()) {
                     return;
                 }
+            }
+
+            if (builtDownloads.length === 1) {
+                let item = builtDownloads[0];
+                await saveDownloadedContent(item.content, item.fileName, overwriteExisting, backgroundDownload);
+            } else if (builtDownloads.length > 1) {
+                let zipBlob = await buildDownloadArchive(builtDownloads);
+                await Download.saveProvidedFile(
+                    zipBlob,
+                    buildArchiveFileName(
+                        baseFileName,
+                        buildChapterRangeSuffix(
+                            selectedChapterRange?.firstChapterIndex,
+                            selectedChapterRange?.lastChapterIndex
+                        ) || "_chapters"
+                    ),
+                    overwriteExisting,
+                    backgroundDownload
+                );
             }
 
             parser.updateReadingList();
@@ -1821,6 +1946,21 @@ var main = (function() {
         let overwriteExisting = userPreferences.overwriteExistingEpub.value;
         let backgroundDownload = userPreferences.noDownloadPopup.value;
         let baseMetaInfo = metaInfoFromControls();
+        let plannedDownloads = groups.map((entry) => {
+            let group = entry.group;
+            let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
+            let fileName = buildDownloadFileName({
+                preferSuggestedFileName: true,
+                suggestedFileName: metaInfo.fileName,
+                fileName: stripDownloadExtension(metaInfo.fileName),
+                title: metaInfo.title,
+                chaptersCount: group.count,
+                group: group.displayTitle,
+                groupTitle: group.title ?? group.displayTitle,
+                groupRange: group.rangeLabel
+            });
+            return { ...entry, metaInfo, fileName };
+        });
 
         ErrorLog.clearHistory();
         clearFetchedChapterData(pagesInGroups);
@@ -1828,20 +1968,15 @@ var main = (function() {
         ChapterUrlsUI.resetDownloadStateImages();
 
         try {
-            for (let entry of groups) {
+            for (let entry of plannedDownloads) {
                 throwIfDownloadStopped();
                 let group = entry.group;
-                let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
-                let fileName = buildDownloadFileName({
-                    preferSuggestedFileName: true,
-                    suggestedFileName: metaInfo.fileName,
-                    fileName: stripDownloadExtension(metaInfo.fileName),
-                    title: metaInfo.title,
-                    chaptersCount: group.count,
-                    group: group.displayTitle,
-                    groupTitle: group.title ?? group.displayTitle,
-                    groupRange: group.rangeLabel
-                });
+                let metaInfo = entry.metaInfo;
+                let fileName = entry.fileName;
+                let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+                if (fileHandle === null) {
+                    return;
+                }
 
                 await withTemporaryCoverImageUrl(resolveGroupCoverImageUrl(group), async () => {
                     await withTemporaryChapterSelection(entry.pages, async () => {
@@ -1850,7 +1985,7 @@ var main = (function() {
                         throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
                         throwIfDownloadStopped();
-                        await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                        await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
                         throwIfDownloadStopped();
                     });
                 });
@@ -1902,6 +2037,21 @@ var main = (function() {
         let overwriteExisting = userPreferences.overwriteExistingEpub.value;
         let backgroundDownload = userPreferences.noDownloadPopup.value;
         let baseMetaInfo = metaInfoFromControls();
+        let plannedDownloads = groups.map((entry) => {
+            let group = entry.group;
+            let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
+            let fileName = buildDownloadFileName({
+                preferSuggestedFileName: true,
+                suggestedFileName: metaInfo.fileName,
+                fileName: stripDownloadExtension(metaInfo.fileName),
+                title: metaInfo.title,
+                chaptersCount: group.count,
+                group: group.displayTitle,
+                groupTitle: group.title ?? group.displayTitle,
+                groupRange: group.rangeLabel
+            });
+            return { ...entry, metaInfo, fileName };
+        });
 
         ErrorLog.clearHistory();
         clearFetchedChapterData(pagesInGroups);
@@ -1909,20 +2059,15 @@ var main = (function() {
         ChapterUrlsUI.resetDownloadStateImages();
 
         try {
-            for (let entry of groups) {
+            for (let entry of plannedDownloads) {
                 throwIfDownloadStopped();
                 let group = entry.group;
-                let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
-                let fileName = buildDownloadFileName({
-                    preferSuggestedFileName: true,
-                    suggestedFileName: metaInfo.fileName,
-                    fileName: stripDownloadExtension(metaInfo.fileName),
-                    title: metaInfo.title,
-                    chaptersCount: group.count,
-                    group: group.displayTitle,
-                    groupTitle: group.title ?? group.displayTitle,
-                    groupRange: group.rangeLabel
-                });
+                let metaInfo = entry.metaInfo;
+                let fileName = entry.fileName;
+                let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+                if (fileHandle === null) {
+                    return;
+                }
 
                 await withTemporaryCoverImageUrl(resolveGroupCoverImageUrl(group), async () => {
                     await withTemporaryChapterSelection(entry.pages, async () => {
@@ -1931,7 +2076,7 @@ var main = (function() {
                         throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
                         throwIfDownloadStopped();
-                        await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                        await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
                         throwIfDownloadStopped();
                     });
                 });
@@ -1968,6 +2113,10 @@ var main = (function() {
         }
 
         let chunkSize = getPackSizeFromUi();
+        if (chunkSize <= 0) {
+            ErrorLog.showErrorMessage("Enter how many chapters should go into each file.");
+            return;
+        }
         let batches = chunkPages(selectedPages, chunkSize);
         await downloadBatches(batches, batches.length !== 1);
     }
@@ -2102,6 +2251,11 @@ var main = (function() {
             }
         }
 
+        if (shouldUsePackDownloadMode(isLibraryAction)) {
+            await downloadPacks();
+            return;
+        }
+
         let overwriteExisting = userPreferences.overwriteExistingEpub.value;
         let backgroundDownload = userPreferences.noDownloadPopup.value;
         let fileName = buildDownloadFileName({
@@ -2110,6 +2264,16 @@ var main = (function() {
             fileName: metaInfo.fileName,
             title: metaInfo.title
         });
+        if (!isLibraryAction) {
+            let selectedChapterRange = getChapterRangeForPages(getSelectedPages());
+            if (selectedChapterRange != null) {
+                fileName = addChapterRangeToDownloadFileName(
+                    fileName,
+                    selectedChapterRange.firstChapterIndex,
+                    selectedChapterRange.lastChapterIndex
+                );
+            }
+        }
         let fileHandle = undefined;
         if ("yes" != libclick.dataset.libclick) {
             fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
@@ -2118,7 +2282,6 @@ var main = (function() {
             }
         }
 
-        ChapterUrlsUI.limitNumOfChapterS(userPreferences.maxChaptersPerEpub.value);
         await runStoryDownloadSession(createStoryDownloadSession({
             isLibraryAction: isLibraryAction,
             metaInfo: metaInfo,
@@ -2310,91 +2473,298 @@ var main = (function() {
         return lines.length === 0 ? [""] : lines;
     }
 
-    async function buildPdfLines(metaInfo, itemSupplier) {
+    function encodePdfUnicodeText(text) {
+        let bytes = [0xFE, 0xFF];
+        for (let character of (text ?? "")) {
+            let codePoint = character.codePointAt(0);
+            if (codePoint <= 0xFFFF) {
+                bytes.push((codePoint >> 8) & 0xFF, codePoint & 0xFF);
+                continue;
+            }
+            let adjusted = codePoint - 0x10000;
+            let highSurrogate = 0xD800 + (adjusted >> 10);
+            let lowSurrogate = 0xDC00 + (adjusted & 0x3FF);
+            bytes.push((highSurrogate >> 8) & 0xFF, highSurrogate & 0xFF);
+            bytes.push((lowSurrogate >> 8) & 0xFF, lowSurrogate & 0xFF);
+        }
+        return `<${bytes.map((value) => value.toString(16).padStart(2, "0").toUpperCase()).join("")}>`;
+    }
+
+    function deriveExportSectionTitle(item, index) {
+        let explicitTitle = item?.chapterTitle?.trim();
+        if (!util.isNullOrEmpty(explicitTitle)) {
+            return explicitTitle;
+        }
+
+        let headingNode = (item?.nodes ?? []).find((node) =>
+            (node?.nodeType === Node.ELEMENT_NODE) && util.isHeaderTag(node)
+        );
+        let headingText = headingNode?.textContent?.trim() ?? "";
+        return util.isNullOrEmpty(headingText) ? `Chapter ${index + 1}` : headingText;
+    }
+
+    function buildExportChapterSections(itemSupplier) {
+        return itemSupplier.spineItems().map((item, index) => {
+            let title = deriveExportSectionTitle(item, index);
+            let paragraphs = extractTextParagraphs(item.nodes);
+            if (isDuplicateLeadingParagraph(paragraphs[0], title)) {
+                paragraphs.shift();
+            }
+            return {
+                id: `chapter-${index + 1}`,
+                index: index,
+                title: title,
+                arcTitle: item.newArc?.trim() ?? null,
+                nodes: item.nodes ?? [],
+                paragraphs: paragraphs
+            };
+        });
+    }
+
+    function buildExportChapterGroups(sections) {
+        let groups = [];
+        let currentGroup = { arcTitle: null, chapters: [] };
+        groups.push(currentGroup);
+
+        sections.forEach((section) => {
+            if (!util.isNullOrEmpty(section.arcTitle)) {
+                currentGroup = { arcTitle: section.arcTitle, chapters: [] };
+                groups.push(currentGroup);
+            }
+            currentGroup.chapters.push(section);
+        });
+
+        return groups.filter(group => group.chapters.length !== 0);
+    }
+
+    function buildPdfFrontMatterPage(metaInfo) {
         let lines = [];
         [metaInfo.title, metaInfo.author ? `Author: ${metaInfo.author}` : "", metaInfo.language ? `Language: ${metaInfo.language}` : ""]
             .filter(value => !util.isNullOrEmpty(value))
-            .forEach((value) => {
-                lines.push(...wrapPdfParagraph(value, 84));
-            });
-        lines.push("");
-
-        let spineItems = itemSupplier.spineItems();
-        for (let index = 0; index < spineItems.length; ++index) {
-            await maybeYieldDuringDownloadWork(index, 2);
-            let item = spineItems[index];
-            let chapterHeading = item.chapterTitle ?? `Chapter ${index + 1}`;
-            lines.push(...wrapPdfParagraph(chapterHeading, 84));
-            lines.push("");
-            nodesToText(item.nodes)
-                .split("\n\n")
-                .forEach((paragraph) => {
-                    lines.push(...wrapPdfParagraph(paragraph, 92));
-                    lines.push("");
-                });
-            lines.push("");
+            .forEach((value) => lines.push(...wrapPdfParagraph(value, 84)));
+        if (lines.length === 0) {
+            lines.push("NetsuShelf export");
         }
+        return {
+            lines: lines,
+            annotations: [],
+            destinationKey: null
+        };
+    }
 
-        while ((0 < lines.length) && (lines.at(-1) === "")) {
+    function buildPdfChapterPageGroups(sections, linesPerPage) {
+        return sections.map((section) => {
+            let chapterLines = [];
+            if (!util.isNullOrEmpty(section.arcTitle)) {
+                chapterLines.push(...wrapPdfParagraph(section.arcTitle, 84));
+                chapterLines.push("");
+            }
+            chapterLines.push(...wrapPdfParagraph(section.title, 84));
+            chapterLines.push("");
+            section.paragraphs.forEach((paragraph) => {
+                chapterLines.push(...wrapPdfParagraph(paragraph, 92));
+                chapterLines.push("");
+            });
+
+            while ((0 < chapterLines.length) && (chapterLines.at(-1) === "")) {
+                chapterLines.pop();
+            }
+            if (chapterLines.length === 0) {
+                chapterLines.push(section.title);
+            }
+
+            let pages = [];
+            for (let index = 0; index < chapterLines.length; index += linesPerPage) {
+                pages.push({
+                    lines: chapterLines.slice(index, index + linesPerPage),
+                    annotations: [],
+                    destinationKey: index === 0 ? section.id : null
+                });
+            }
+            return {
+                section: section,
+                pages: pages
+            };
+        });
+    }
+
+    function buildPdfTocEntryLine(title, pageNumber, maxLength = 84) {
+        let normalizedTitle = normalizePdfText(title)
+            .replace(/\s+/g, " ")
+            .trim();
+        let pageLabel = `${pageNumber}`;
+        let suffix = ` ${pageLabel}`;
+        let availableTitleLength = Math.max(8, maxLength - suffix.length - 4);
+        if (normalizedTitle.length > availableTitleLength) {
+            normalizedTitle = `${normalizedTitle.substring(0, availableTitleLength - 3).trimEnd()}...`;
+        }
+        let dots = ".".repeat(Math.max(2, maxLength - normalizedTitle.length - suffix.length));
+        return `${normalizedTitle} ${dots}${pageLabel}`;
+    }
+
+    function buildPdfTocLineDescriptors(chapterGroups, chapterStartPages = new Map()) {
+        let lines = [
+            { text: "Table of Contents" },
+            { text: "" }
+        ];
+
+        chapterGroups.forEach((group, groupIndex) => {
+            if (!util.isNullOrEmpty(group.arcTitle)) {
+                lines.push({ text: group.arcTitle });
+            }
+
+            group.chapters.forEach((section) => {
+                let pageNumber = chapterStartPages.get(section.id) ?? "?";
+                lines.push({
+                    text: buildPdfTocEntryLine(section.title, pageNumber),
+                    destinationKey: section.id
+                });
+            });
+
+            if (groupIndex !== chapterGroups.length - 1) {
+                lines.push({ text: "" });
+            }
+        });
+
+        while ((0 < lines.length) && util.isNullOrEmpty(lines.at(-1).text)) {
             lines.pop();
         }
         return lines;
     }
 
-    async function createSimplePdfBlob(lines) {
+    function buildPdfTocPages(chapterGroups, chapterStartPages, linesPerPage) {
+        let tocLines = buildPdfTocLineDescriptors(chapterGroups, chapterStartPages);
+        if (tocLines.length === 0) {
+            return [];
+        }
+
+        let pages = [];
+        for (let index = 0; index < tocLines.length; index += linesPerPage) {
+            let pageLines = tocLines.slice(index, index + linesPerPage);
+            pages.push({
+                lines: pageLines.map(line => line.text),
+                annotations: pageLines
+                    .map((line, lineIndex) => line.destinationKey == null
+                        ? null
+                        : { lineIndex: lineIndex, destinationKey: line.destinationKey })
+                    .filter(Boolean),
+                destinationKey: null
+            });
+        }
+        return pages;
+    }
+
+    async function createSimplePdfBlob(pages, sections) {
         let pageWidth = 612;
         let pageHeight = 792;
         let marginLeft = 48;
+        let marginRight = 48;
         let marginTop = 748;
         let lineHeight = 16;
-        let linesPerPage = 43;
-
-        let pages = [];
-        for (let index = 0; index < lines.length; index += linesPerPage) {
-            pages.push(lines.slice(index, index + linesPerPage));
-        }
-        if (pages.length === 0) {
-            pages.push([""]);
-        }
 
         let fontObjectId = 3;
         let objects = new Map();
         let nextObjectId = 4;
         let pageObjectIds = [];
-
-        objects.set(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        let destinationPageObjectIds = new Map();
         objects.set(fontObjectId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
 
         for (let pageIndex = 0; pageIndex < pages.length; ++pageIndex) {
             await maybeYieldDuringDownloadWork(pageIndex, 4);
-            let pageLines = pages[pageIndex];
-            let contentObjectId = nextObjectId++;
-            let pageObjectId = nextObjectId++;
-            pageObjectIds.push(pageObjectId);
+            let page = pages[pageIndex];
+            page.contentObjectId = nextObjectId++;
+            page.pageObjectId = nextObjectId++;
+            page.annotationObjectIds = (page.annotations ?? []).map(() => nextObjectId++);
+            pageObjectIds.push(page.pageObjectId);
+            if (!util.isNullOrEmpty(page.destinationKey)) {
+                destinationPageObjectIds.set(page.destinationKey, page.pageObjectId);
+            }
+        }
 
+        let outlineRootObjectId = null;
+        let outlineObjectIds = [];
+        if (sections.length !== 0) {
+            outlineRootObjectId = nextObjectId++;
+            outlineObjectIds = sections.map(() => nextObjectId++);
+        }
+
+        objects.set(
+            1,
+            `<< /Type /Catalog /Pages 2 0 R${outlineRootObjectId == null ? "" : ` /Outlines ${outlineRootObjectId} 0 R /PageMode /UseOutlines`} >>`
+        );
+
+        for (let pageIndex = 0; pageIndex < pages.length; ++pageIndex) {
+            let page = pages[pageIndex];
             let operators = [
                 "BT",
                 "/F1 11 Tf",
                 `${marginLeft} ${marginTop} Td`,
                 `${lineHeight} TL`
             ];
-            pageLines.forEach((line, lineIndex) => {
+            page.lines.forEach((line, lineIndex) => {
                 operators.push(`<${encodePdfTextAsHex(line)}> Tj`);
-                if (lineIndex !== pageLines.length - 1) {
+                if (lineIndex !== page.lines.length - 1) {
                     operators.push("T*");
                 }
             });
             operators.push("ET");
 
             let stream = operators.join("\n");
-            let streamLength = stream.length;
-            objects.set(contentObjectId, `<< /Length ${streamLength} >>\nstream\n${stream}\nendstream`);
+            let streamLength = new TextEncoder().encode(stream).length;
+            objects.set(page.contentObjectId, `<< /Length ${streamLength} >>\nstream\n${stream}\nendstream`);
+
+            let annotationRefs = page.annotationObjectIds.length === 0
+                ? ""
+                : ` /Annots [${page.annotationObjectIds.map((id) => `${id} 0 R`).join(" ")}]`;
             objects.set(
-                pageObjectId,
+                page.pageObjectId,
                 `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] `
                 + `/Resources << /Font << /F1 ${fontObjectId} 0 R >> >> `
-                + `/Contents ${contentObjectId} 0 R >>`
+                + `/Contents ${page.contentObjectId} 0 R${annotationRefs} >>`
             );
+
+            page.annotations.forEach((annotation, annotationIndex) => {
+                let destinationPageObjectId = destinationPageObjectIds.get(annotation.destinationKey);
+                if (destinationPageObjectId == null) {
+                    return;
+                }
+                let baseline = marginTop - (annotation.lineIndex * lineHeight);
+                let lowerY = Math.max(24, baseline - 4);
+                let upperY = Math.min(pageHeight - 24, baseline + 12);
+                objects.set(
+                    page.annotationObjectIds[annotationIndex],
+                    `<< /Type /Annot /Subtype /Link /Rect [${marginLeft} ${lowerY} ${pageWidth - marginRight} ${upperY}] `
+                    + `/Border [0 0 0] /Dest [${destinationPageObjectId} 0 R /Fit] >>`
+                );
+            });
+        }
+
+        if (outlineRootObjectId != null) {
+            objects.set(
+                outlineRootObjectId,
+                `<< /Type /Outlines /First ${outlineObjectIds[0]} 0 R /Last ${outlineObjectIds.at(-1)} 0 R /Count ${outlineObjectIds.length} >>`
+            );
+            sections.forEach((section, index) => {
+                let destinationPageObjectId = destinationPageObjectIds.get(section.id);
+                if (destinationPageObjectId == null) {
+                    return;
+                }
+                let outlineTitle = util.isNullOrEmpty(section.arcTitle)
+                    ? section.title
+                    : `${section.arcTitle} - ${section.title}`;
+                let parts = [
+                    `/Title ${encodePdfUnicodeText(outlineTitle)}`,
+                    `/Parent ${outlineRootObjectId} 0 R`,
+                    `/Dest [${destinationPageObjectId} 0 R /Fit]`
+                ];
+                if (0 < index) {
+                    parts.push(`/Prev ${outlineObjectIds[index - 1]} 0 R`);
+                }
+                if (index < outlineObjectIds.length - 1) {
+                    parts.push(`/Next ${outlineObjectIds[index + 1]} 0 R`);
+                }
+                objects.set(outlineObjectIds[index], `<< ${parts.join(" ")} >>`);
+            });
         }
 
         objects.set(2, `<< /Type /Pages /Count ${pageObjectIds.length} /Kids [${pageObjectIds.map(id => `${id} 0 R`).join(" ")}] >>`);
@@ -2428,7 +2798,26 @@ var main = (function() {
     }
 
     async function buildPdfExport(metaInfo, itemSupplier) {
-        return createSimplePdfBlob(await buildPdfLines(metaInfo, itemSupplier));
+        let linesPerPage = 43;
+        let sections = buildExportChapterSections(itemSupplier);
+        let chapterGroups = buildExportChapterGroups(sections);
+        let chapterPageGroups = buildPdfChapterPageGroups(sections, linesPerPage);
+
+        let tocPagesCount = chapterGroups.length === 0
+            ? 0
+            : Math.ceil(buildPdfTocLineDescriptors(chapterGroups).length / linesPerPage);
+        let chapterStartPages = new Map();
+        let nextChapterPageNumber = 1 + tocPagesCount + 1;
+        chapterPageGroups.forEach((chapterPageGroup) => {
+            chapterStartPages.set(chapterPageGroup.section.id, nextChapterPageNumber);
+            nextChapterPageNumber += chapterPageGroup.pages.length;
+        });
+
+        let pages = [buildPdfFrontMatterPage(metaInfo)];
+        pages.push(...buildPdfTocPages(chapterGroups, chapterStartPages, linesPerPage));
+        chapterPageGroups.forEach((chapterPageGroup) => pages.push(...chapterPageGroup.pages));
+
+        return createSimplePdfBlob(pages, sections);
     }
 
     function buildHtmlExport(metaInfo, itemSupplier) {
@@ -2449,11 +2838,23 @@ var main = (function() {
             ".webToEpub-export-meta{margin:0 0 36px;}",
             ".webToEpub-export-meta h1{margin:0 0 8px;font-size:2rem;line-height:1.2;}",
             ".webToEpub-export-meta p{margin:0;color:#475569;}",
-            ".webToEpub-export-chapter{margin-top:40px;padding-top:24px;border-top:1px solid #cbd5e1;}"
+            ".webToEpub-export-toc{margin:0 0 40px;padding:24px;border:1px solid #cbd5e1;border-radius:18px;background:#f8fafc;}",
+            ".webToEpub-export-toc h2{margin:0 0 16px;font-size:1.35rem;}",
+            ".webToEpub-export-toc ol{margin:0;padding-left:1.5rem;}",
+            ".webToEpub-export-toc li + li{margin-top:.45rem;}",
+            ".webToEpub-export-toc-group{font-weight:600;color:#0f172a;}",
+            ".webToEpub-export-toc-groupList{margin-top:.45rem;}",
+            ".webToEpub-export-chapter{margin-top:40px;padding-top:24px;border-top:1px solid #cbd5e1;break-before:page;page-break-before:always;}",
+            ".webToEpub-export-chapter:first-of-type{break-before:auto;page-break-before:auto;}",
+            ".webToEpub-export-chapterArc{margin:0 0 8px;font-size:.95rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#475569;}",
+            ".webToEpub-export-generatedTitle{margin:0 0 18px;font-size:1.6rem;line-height:1.3;scroll-margin-top:1rem;}",
+            "@media print{body{max-width:none;padding:0 18mm 18mm;}.webToEpub-export-toc{break-after:page;page-break-after:always;}}"
         ].join("\n");
         head.appendChild(style);
 
         let body = doc.body;
+        let sections = buildExportChapterSections(itemSupplier);
+        let chapterGroups = buildExportChapterGroups(sections);
         let coverUrl = coverImageDataUrl(itemSupplier);
         if (!util.isNullOrEmpty(coverUrl)) {
             let cover = doc.createElement("figure");
@@ -2477,33 +2878,131 @@ var main = (function() {
         meta.appendChild(byline);
         body.appendChild(meta);
 
-        itemSupplier.spineItems().forEach((item) => {
-            let section = doc.createElement("section");
-            section.className = "webToEpub-export-chapter";
-            for (let node of item.nodes ?? []) {
-                let clean = util.sanitizeNode(node);
-                if (clean != null) {
-                    section.appendChild(clean);
+        if (chapterGroups.length !== 0) {
+            let nav = doc.createElement("nav");
+            nav.className = "webToEpub-export-toc";
+            nav.setAttribute("aria-label", "Table of contents");
+            let navTitle = doc.createElement("h2");
+            navTitle.textContent = "Table of Contents";
+            nav.appendChild(navTitle);
+            let navRoot = doc.createElement("ol");
+            chapterGroups.forEach((group) => {
+                if (util.isNullOrEmpty(group.arcTitle)) {
+                    group.chapters.forEach((section) => {
+                        let item = doc.createElement("li");
+                        let link = doc.createElement("a");
+                        link.href = `#${section.id}`;
+                        link.textContent = section.title;
+                        item.appendChild(link);
+                        navRoot.appendChild(item);
+                    });
+                    return;
                 }
+
+                let groupItem = doc.createElement("li");
+                let groupLabel = doc.createElement("span");
+                groupLabel.className = "webToEpub-export-toc-group";
+                groupLabel.textContent = group.arcTitle;
+                groupItem.appendChild(groupLabel);
+
+                let groupList = doc.createElement("ol");
+                groupList.className = "webToEpub-export-toc-groupList";
+                group.chapters.forEach((section) => {
+                    let item = doc.createElement("li");
+                    let link = doc.createElement("a");
+                    link.href = `#${section.id}`;
+                    link.textContent = section.title;
+                    item.appendChild(link);
+                    groupList.appendChild(item);
+                });
+                groupItem.appendChild(groupList);
+                navRoot.appendChild(groupItem);
+            });
+            nav.appendChild(navRoot);
+            body.appendChild(nav);
+        }
+
+        sections.forEach((chapterSection) => {
+            let chapterElement = doc.createElement("section");
+            chapterElement.className = "webToEpub-export-chapter";
+
+            let sanitizedNodes = (chapterSection.nodes ?? [])
+                .map(node => util.sanitizeNode(node))
+                .filter(node => node != null);
+            let firstElement = sanitizedNodes.find(node => node.nodeType === Node.ELEMENT_NODE);
+            let firstElementMatchesChapterTitle = (firstElement != null)
+                && util.isHeaderTag(firstElement)
+                && (normalizeDuplicateHeadingText(firstElement.textContent) === normalizeDuplicateHeadingText(chapterSection.title));
+
+            if (!util.isNullOrEmpty(chapterSection.arcTitle)) {
+                let arcLabel = doc.createElement("p");
+                arcLabel.className = "webToEpub-export-chapterArc";
+                arcLabel.textContent = chapterSection.arcTitle;
+                chapterElement.appendChild(arcLabel);
             }
-            body.appendChild(section);
+
+            if (firstElementMatchesChapterTitle) {
+                firstElement.id = chapterSection.id;
+            } else {
+                let generatedTitle = doc.createElement("h2");
+                generatedTitle.className = "webToEpub-export-generatedTitle";
+                generatedTitle.id = chapterSection.id;
+                generatedTitle.textContent = chapterSection.title;
+                chapterElement.appendChild(generatedTitle);
+            }
+
+            for (let node of sanitizedNodes) {
+                chapterElement.appendChild(node);
+            }
+            body.appendChild(chapterElement);
         });
 
         return new Blob([util.xmlToString(doc)], { type: "text/html;charset=utf-8" });
     }
 
-    function nodesToText(nodes) {
+    function extractTextParagraphs(nodes) {
         return (nodes ?? [])
             .map((node) => {
                 let clean = util.sanitizeNode(node);
                 return clean?.textContent?.replace(/\r/g, "")?.trim() ?? "";
             })
-            .filter(text => !util.isNullOrEmpty(text))
-            .join("\n\n");
+            .filter(text => !util.isNullOrEmpty(text));
+    }
+
+    function normalizeDuplicateHeadingText(text) {
+        return (text ?? "")
+            .replace(/\s+/g, " ")
+            .replace(/[.:_-]+$/g, "")
+            .trim()
+            .toLowerCase();
+    }
+
+    function isDuplicateLeadingParagraph(paragraph, heading) {
+        if (util.isNullOrEmpty(paragraph) || util.isNullOrEmpty(heading)) {
+            return false;
+        }
+        return normalizeDuplicateHeadingText(paragraph) === normalizeDuplicateHeadingText(heading);
+    }
+
+    async function buildDownloadArchive(entries) {
+        let zipFileWriter = new zip.BlobWriter("application/zip");
+        let zipWriter = new zip.ZipWriter(zipFileWriter, { useWebWorkers: false, compressionMethod: 8, extendedTimestamp: false });
+        for (let index = 0; index < entries.length; ++index) {
+            await maybeYieldDuringDownloadWork(index, 2);
+            let entry = entries[index];
+            await zipWriter.add(
+                Download.normalizeProvidedFileName(entry.fileName),
+                new zip.BlobReader(entry.content)
+            );
+        }
+        throwIfDownloadStopped();
+        return zipWriter.close();
     }
 
     async function buildTextExport(metaInfo, itemSupplier) {
         let blocks = [];
+        let sections = buildExportChapterSections(itemSupplier);
+        let chapterGroups = buildExportChapterGroups(sections);
         if (!util.isNullOrEmpty(metaInfo.title)) {
             blocks.push(metaInfo.title);
         }
@@ -2514,18 +3013,40 @@ var main = (function() {
             blocks.push(`Language: ${metaInfo.language}`);
         }
 
-        let spineItems = itemSupplier.spineItems();
-        for (let index = 0; index < spineItems.length; ++index) {
+        if (chapterGroups.length !== 0) {
+            let tocLines = ["Table of Contents", ""];
+            chapterGroups.forEach((group, index) => {
+                if (!util.isNullOrEmpty(group.arcTitle)) {
+                    tocLines.push(group.arcTitle);
+                }
+                group.chapters.forEach((section) => {
+                    let prefix = `${section.index + 1}. `;
+                    tocLines.push(util.isNullOrEmpty(group.arcTitle)
+                        ? `${prefix}${section.title}`
+                        : `  ${prefix}${section.title}`);
+                });
+                if (index !== chapterGroups.length - 1) {
+                    tocLines.push("");
+                }
+            });
+            blocks.push(tocLines.join("\n"));
+        }
+
+        for (let index = 0; index < sections.length; ++index) {
             await maybeYieldDuringDownloadWork(index, 3);
-            let item = spineItems[index];
-            let chapterTitle = item.chapterTitle ?? "";
-            let chapterText = nodesToText(item.nodes);
-            let chapterBlock = [chapterTitle, chapterText]
-                .filter(value => !util.isNullOrEmpty(value))
-                .join("\n\n");
-            if (!util.isNullOrEmpty(chapterBlock)) {
-                blocks.push(chapterBlock);
+            let section = sections[index];
+            let headingLine = `${section.index + 1}. ${section.title}`;
+            let divider = "=".repeat(Math.max(headingLine.length, 12));
+            let chapterBlock = [];
+            if (!util.isNullOrEmpty(section.arcTitle)) {
+                chapterBlock.push(section.arcTitle);
             }
+            chapterBlock.push(headingLine);
+            chapterBlock.push(divider);
+            if (section.paragraphs.length !== 0) {
+                chapterBlock.push(section.paragraphs.join("\n\n"));
+            }
+            blocks.push(chapterBlock.join("\n\n"));
         }
 
         return new Blob([blocks.join("\n\n\n")], { type: "text/plain;charset=utf-8" });
@@ -2589,7 +3110,7 @@ var main = (function() {
             !util.isNullOrEmpty(errors)) {
             let fileName = metaInfoFromControls().fileName + ".ErrorLog.txt";
             let blob = new Blob([errors], {type : "text"});
-            return Download.save(blob, fileName)
+            return Download.saveProvidedFile(blob, fileName)
                 .catch (err => ErrorLog.showErrorMessage(err));
         }
     }
@@ -2646,6 +3167,7 @@ var main = (function() {
         userPreferences.addObserver(library);
         userPreferences.writeToUi();
         userPreferences.hookupUi();
+        syncChapterDownloadModeUi();
         BakaTsukiSeriesPageParser.registerBakaParsers(userPreferences.autoSelectBTSeriesPage.value);
     }
 
@@ -3011,6 +3533,26 @@ var main = (function() {
         let downloadAllGroupsButton = document.getElementById("downloadAllChapterGroupsButton");
         if (downloadAllGroupsButton != null) {
             downloadAllGroupsButton.onclick = downloadAllChapterGroups;
+        }
+        let chapterFileModeSelect = document.getElementById("chapterFileModeSelect");
+        if (chapterFileModeSelect != null) {
+            chapterFileModeSelect.addEventListener("change", () => {
+                syncChapterDownloadModeUi();
+                updateDownloadFormatUi();
+            });
+        }
+        let packSizeInput = document.getElementById("packSizeInput");
+        if (packSizeInput != null) {
+            packSizeInput.addEventListener("input", syncChapterDownloadModeUi);
+            packSizeInput.addEventListener("change", syncChapterDownloadModeUi);
+        }
+        let increasePackSizeButton = document.getElementById("increasePackSizeButton");
+        if (increasePackSizeButton != null) {
+            increasePackSizeButton.addEventListener("click", () => adjustPackSize(1));
+        }
+        let decreasePackSizeButton = document.getElementById("decreasePackSizeButton");
+        if (decreasePackSizeButton != null) {
+            decreasePackSizeButton.addEventListener("click", () => adjustPackSize(-1));
         }
         document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
         getReferenceSitePresetCheckboxes().forEach((checkbox) => {

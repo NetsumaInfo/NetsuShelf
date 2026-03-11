@@ -107,6 +107,8 @@ class UserPreferences { // eslint-disable-line no-unused-vars
         this.removeTranslated = this.addPreference("removeTranslated", "removeTranslatedCheckbox", false);
         this.skipChaptersThatFailFetch = this.addPreference("skipChaptersThatFailFetch", "skipChaptersThatFailFetchCheckbox", false);
         this.maxChaptersPerEpub = this.addPreference("maxChaptersPerEpub", "maxChaptersPerEpubTag", "10,000");
+        this.chapterFileMode = this.addPreference("chapterFileMode", "chapterFileModeSelect", "single");
+        this.chapterPackSize = this.addPreference("chapterPackSize", "packSizeInput", "50");
         this.manualDelayPerChapter = this.addPreference("manualDelayPerChapter", "manualDelayPerChapterTag", "0");
         this.overrideMinimumDelay = this.addPreference("overrideMinimumDelay", "overrideMinimumDelayCheckbox", false);
         this.skipImages = this.addPreference("skipImages", "skipImagesCheckbox", false);
@@ -210,7 +212,7 @@ class UserPreferences { // eslint-disable-line no-unused-vars
         }
         serialized = JSON.stringify(obj);
         let blob = new Blob([serialized], {type : "text"});
-        return Download.save(blob, "Options.json")
+        return Download.saveProvidedFile(blob, "Options.json")
             .catch (err => ErrorLog.showErrorMessage(err));
     }
 

@@ -610,6 +610,30 @@
                                 </td>
                             </tr>
                             </table>
+                            <div id="chapterDownloadModeControls" class="packBatchControls">
+                                <label for="chapterFileModeSelect">Download mode</label>
+                                <select id="chapterFileModeSelect">
+                                    <option value="single" selected="selected">Single file</option>
+                                    <option value="packs">Chapter packs</option>
+                                </select>
+                                <label id="chapterPackSizeLabel" for="packSizeInput">Chapters per file</label>
+                                <div id="packSizeInputWrap" class="packSizeInputWrap">
+                                    <input
+                                        id="packSizeInput"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        inputmode="numeric"
+                                        placeholder="50"
+                                        aria-label="Chapters per file"
+                                    />
+                                    <div id="packSizeStepper" class="packSizeStepper" aria-hidden="true">
+                                        <button id="increasePackSizeButton" type="button" tabindex="-1" aria-label="Increase chapters per file">+</button>
+                                        <button id="decreasePackSizeButton" type="button" tabindex="-1" aria-label="Decrease chapters per file">-</button>
+                                    </div>
+                                </div>
+                                <span id="chapterDownloadModeHint" class="chapterGroupingHint">Export all selected chapters into a single file.</span>
+                            </div>
                             <div class="chapterActionBar">
                                 <div class="chapterActionPrimary">
                                     <button id="selectAllUrlsButton">Select Visible</button>
@@ -633,25 +657,6 @@
                                         <button id="copyUrlsToClipboardButton">__MSG_button_Copy_Urls_To_Clipboard__</button>
                                     </div>
                                 </details>
-                            </div>
-                            <div id="chapterToolsControls" class="chapterToolsControls">
-                                <label>
-                                    <input id="chapterOnlyCheckbox" type="checkbox" />
-                                    Keep chapter links only
-                                </label>
-                            </div>
-                            <div id="smartSelectControls" class="smartSelectControls">
-                                <label for="smartSelectInput">Smart select</label>
-                                <input
-                                    id="smartSelectInput"
-                                    type="text"
-                                    placeholder="Examples: 1-50, 72, prince -annexe"
-                                />
-                                <select id="smartSelectMode">
-                                    <option value="include" selected="selected">Select matches</option>
-                                    <option value="exclude">Unselect matches</option>
-                                </select>
-                                <button id="smartSelectApplyButton" type="button">Apply</button>
                             </div>
                         </div>
                     </details>

@@ -216,7 +216,7 @@
 		"description": "Label on button to write options to a file"
 	},
 	"__MSG_column_Include__": {
-		"message": "Include?",
+		"message": "Include",
 		"description": "The 'include this chapter' checkbox column in the table of chapters."
 	},
 	"__MSG_column_Title__": {
@@ -428,7 +428,7 @@
 		"description": "Label for radio checkbox Google"
 	},
 	"__MSG_label_Select_Retry_Longer__": {
-		"message": "Retry Chapter for up to 1h (it looks like WebToEpub is stuck)",
+		"message": "Retry Chapter for up to 1h (it looks like NetsuShelf is stuck)",
 		"description": "Label for Retry longer"
 	},
 	"__MSG_label_Remove_Translated__": {
@@ -755,7 +755,7 @@
 		"description": "Internal message for developer."
 	},
 	"warning403ErrorResponse": {
-		"message": "WARNING: Site '$host$' has sent an Access Denied (403) error.\nYou may need to logon to site, or browse site normally\nuntil you get a Cloudflare \"Are you a human\" page or satisfy some other CAPTCHA\nbefore WebToEpub can continue.\nThis happens if you are downloading to fast try to increase 'Advanced Options -> Delay per chapter in ms'\n",
+		"message": "WARNING: Site '$host$' has sent an Access Denied (403) error.\nYou may need to logon to site, or browse site normally\nuntil you get a Cloudflare \"Are you a human\" page or satisfy some other CAPTCHA\nbefore NetsuShelf can continue.\nThis happens if you are downloading to fast try to increase 'Advanced Options -> Delay per chapter in ms'\n",
 		"description": "Warning message for user when site sends a 403 response.",
 		"placeholders": {
 			"host": {
@@ -768,7 +768,7 @@
 		"description": "Wait message for user when site sends a 403 response."
 	},
 	"warning429ErrorResponse": {
-		"message": "WARNING: Site '$host$' has requested WebToEpub to slow down rate of chapter requests.  WebToEpub will wait until site allows requesting chapters again.  However, if this does not work, you may need to adjust manually.  Under 'Advanced Options' -> increase 'Delay per chapter in ms'",
+		"message": "WARNING: Site '$host$' has requested NetsuShelf to slow down rate of chapter requests.  NetsuShelf will wait until site allows requesting chapters again.  However, if this does not work, you may need to adjust manually.  Under 'Advanced Options' -> increase 'Delay per chapter in ms'",
 		"description": "Warning message for user when site sends a 429 response.",
 		"placeholders": {
 			"host": {

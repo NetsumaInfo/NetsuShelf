@@ -87,12 +87,33 @@ class ChireadsParser extends WordpressBaseParser {
         let rawTitle = (header?.textContent || "")
             .replace(/\s+/g, " ")
             .replace(/^[>\-+\s]+/, "")
-            .replace(/\[\s*\d+\s*\]\s*$/, "")
+            .replace(/\[\s*\d+\s*\]/g, "")
+            .replace(/[−+-]+\s*$/u, "")
             .trim();
         if (util.isNullOrEmpty(rawTitle)) {
             return `Section ${index + 1}`;
         }
         return rawTitle;
+    }
+
+    extractAuthor(dom) {
+        let infoNode = dom.querySelector(".inform-inform-data h6")
+            || dom.querySelector(".inform-inform-data");
+        if (infoNode != null) {
+            let infoText = (infoNode.textContent ?? "")
+                .replace(/&nbsp;/gi, " ")
+                .replace(/\u00a0/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            let authorMatch = infoText.match(
+                /(?:Auteur|Author)\s*:\s*(.+?)(?=\s*(?:Traducteur|Translator|Statut|Status)\s*:|$)/i
+            );
+            let author = authorMatch?.[1]?.trim();
+            if (!util.isNullOrEmpty(author)) {
+                return author;
+            }
+        }
+        return super.extractAuthor(dom);
     }
 
     linkToChapter(link, groupInfo = null) {

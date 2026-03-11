@@ -33,6 +33,8 @@ class ProgressBar { // eslint-disable-line no-unused-vars
         if (1 < element.max) {
             text = `${element.value}/${element.max}`;
             ProgressBar.updateTabTitle(element.value, element.max);
+        } else {
+            document.title = "NetsuShelf";
         }
         document.getElementById("progressString").textContent = text;
     }

@@ -93,7 +93,7 @@
             </div>
         </section>
         <section id="inputSection">
-            <h2 class="ns-section-title">1. Story Information</h2>
+            <h2 class="ns-section-title">Story Information</h2>
             <table id="inputTable">
                 <tr>
                     <td>__MSG_label_Starting_URL__</td>
@@ -546,154 +546,216 @@
             </div>
         </section>
         <section id="outputSection" class="minWidth">
-            <h2 class="ns-section-title">2. Chapter Selection</h2>
+            <h2 class="ns-section-title">Chapter Selection</h2>
             <div id="chapterSelectControlsDiv">
-                <table id="rangeSelectTable">
-                    <tr id="rangeStartChapterRow">
-                        <td>__MSG_label_Range_Start_Chapter__</td>
-                        <td><select id="selectRangeStartChapter" /></td>
-                        <td><input id="showChapterUrlsCheckbox" type="checkbox" name="showChapterUrlsCheckbox" value="false"></td>
-                        <td>__MSG_label_Show_Chapter_Urls__</td>
-                    </tr>
-                    <tr id="rangeEndChapterRow">
-                        <td>__MSG_label_Range_End_Chapter__</td>
-                        <td><select id="selectRangeEndChapter" /></td>
-                        <td colspan="2">&nbsp;</td>
-                    </tr>
-                    <tr id="rangeChapterCountRow">
-                        <td>__MSG_label_Chapter_Count__</td>
-                        <td colspan="3">
-                            <table width="100%">
-                                <tr>
-                                    <td width="30%"><span id="spanChapterCount" />0</td>
-                                    <td width="50%"><span id="spanParserName" /></td>
-                                    <td width="20%"><span id="spanDelayMs" />0 ms</td>
-                                </tr>
+                <div class="chapterWorkflowLayout">
+                    <details class="chapterWorkflowBlock chapterWorkflowBlockSelection" data-collapsible-panel="chapter-selection" open="open">
+                        <summary class="chapterWorkflowBlockSummary">
+                            <span class="chapterWorkflowBlockSummaryText">
+                                <span class="chapterWorkflowBlockTitle">Select chapters</span>
+                                <span class="chapterWorkflowBlockLead">Choose the chapter range and apply quick selection tools.</span>
+                            </span>
+                        </summary>
+                        <div class="chapterWorkflowBlockBody">
+                            <table id="rangeSelectTable">
+                            <tr id="rangeStartChapterRow">
+                                <td>__MSG_label_Range_Start_Chapter__</td>
+                                <td>
+                                    <div class="chapterRangeSelector">
+                                        <input
+                                            id="selectRangeStartChapterNumber"
+                                            class="chapterRangeNumberInput"
+                                            type="text"
+                                            inputmode="numeric"
+                                            pattern="[0-9]*"
+                                            autocomplete="off"
+                                            placeholder="No."
+                                            aria-label="First chapter number"
+                                        />
+                                        <select id="selectRangeStartChapter"></select>
+                                    </div>
+                                </td>
+                                <td><input id="showChapterUrlsCheckbox" type="checkbox" name="showChapterUrlsCheckbox" value="false"></td>
+                                <td>__MSG_label_Show_Chapter_Urls__</td>
+                            </tr>
+                            <tr id="rangeEndChapterRow">
+                                <td>__MSG_label_Range_End_Chapter__</td>
+                                <td>
+                                    <div class="chapterRangeSelector">
+                                        <input
+                                            id="selectRangeEndChapterNumber"
+                                            class="chapterRangeNumberInput"
+                                            type="text"
+                                            inputmode="numeric"
+                                            pattern="[0-9]*"
+                                            autocomplete="off"
+                                            placeholder="No."
+                                            aria-label="Last chapter number"
+                                        />
+                                        <select id="selectRangeEndChapter"></select>
+                                    </div>
+                                </td>
+                                <td colspan="2">&nbsp;</td>
+                            </tr>
+                            <tr id="rangeChapterCountRow">
+                                <td>__MSG_label_Chapter_Count__</td>
+                                <td colspan="3">
+                                    <table width="100%">
+                                        <tr>
+                                            <td width="30%"><span id="spanChapterCount" />0</td>
+                                            <td width="50%"><span id="spanParserName" /></td>
+                                            <td width="20%"><span id="spanDelayMs" />0 ms</td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
                             </table>
-                        </td>
-                    </tr>
-                </table>
-                <div class="chapterActionBar">
-                    <div class="chapterActionPrimary">
-                        <button id="selectAllUrlsButton">Select Visible</button>
-                        <button id="unselectAllUrlsButton">Clear Visible</button>
-                        <button id="invertSelectionButton">Invert Visible</button>
-                        <button id="autoSelectChaptersButton">Auto Select Chapters</button>
-                        <button id="viewFiltersButton">__MSG_button_View_Filters__</button>
-                    </div>
-                    <details class="chapterActionSecondary">
-                        <summary>Ordering</summary>
-                        <div class="chapterActionSecondaryBody">
-                            <button id="sortChaptersAscButton">Sort Chapters 1 to N</button>
-                            <button id="sortChaptersDescButton">Sort Chapters N to 1</button>
-                            <button id="reverseChapterUrlsOrderButton">__MSG_button_Reverse_Chapter_Urls_Order__</button>
+                            <div class="chapterActionBar">
+                                <div class="chapterActionPrimary">
+                                    <button id="selectAllUrlsButton">Select Visible</button>
+                                    <button id="unselectAllUrlsButton">Clear Visible</button>
+                                    <button id="invertSelectionButton">Invert Visible</button>
+                                    <button id="autoSelectChaptersButton">Auto Select Chapters</button>
+                                    <button id="viewFiltersButton">__MSG_button_View_Filters__</button>
+                                </div>
+                                <details class="chapterActionSecondary">
+                                    <summary>Ordering</summary>
+                                    <div class="chapterActionSecondaryBody">
+                                        <button id="sortChaptersAscButton">Sort Chapters 1 to N</button>
+                                        <button id="sortChaptersDescButton">Sort Chapters N to 1</button>
+                                        <button id="reverseChapterUrlsOrderButton">__MSG_button_Reverse_Chapter_Urls_Order__</button>
+                                    </div>
+                                </details>
+                                <details class="chapterActionSecondary">
+                                    <summary>More tools</summary>
+                                    <div class="chapterActionSecondaryBody">
+                                        <button id="editChaptersUrlsButton">__MSG_button_Edit_Chapter_Urls__</button>
+                                        <button id="copyUrlsToClipboardButton">__MSG_button_Copy_Urls_To_Clipboard__</button>
+                                    </div>
+                                </details>
+                            </div>
+                            <div id="chapterToolsControls" class="chapterToolsControls">
+                                <label>
+                                    <input id="chapterOnlyCheckbox" type="checkbox" />
+                                    Keep chapter links only
+                                </label>
+                            </div>
+                            <div id="smartSelectControls" class="smartSelectControls">
+                                <label for="smartSelectInput">Smart select</label>
+                                <input
+                                    id="smartSelectInput"
+                                    type="text"
+                                    placeholder="Examples: 1-50, 72, prince -annexe"
+                                />
+                                <select id="smartSelectMode">
+                                    <option value="include" selected="selected">Select matches</option>
+                                    <option value="exclude">Unselect matches</option>
+                                </select>
+                                <button id="smartSelectApplyButton" type="button">Apply</button>
+                            </div>
                         </div>
                     </details>
-                    <details class="chapterActionSecondary">
-                        <summary>More tools</summary>
-                        <div class="chapterActionSecondaryBody">
-                            <button id="editChaptersUrlsButton">__MSG_button_Edit_Chapter_Urls__</button>
-                            <button id="copyUrlsToClipboardButton">__MSG_button_Copy_Urls_To_Clipboard__</button>
+                    <details class="chapterWorkflowBlock chapterWorkflowBlockReference" data-collapsible-panel="chapter-reference" open="open">
+                        <summary class="chapterWorkflowBlockSummary">
+                            <span class="chapterWorkflowBlockSummaryText">
+                                <span class="chapterWorkflowBlockTitle">Detect and map groups</span>
+                                <span class="chapterWorkflowBlockLead">Load reference sites to import cleaner groups when this page has weak volume markers.</span>
+                            </span>
+                        </summary>
+                        <div class="chapterWorkflowBlockBody">
+                            <div id="referenceGroupingControls" class="packBatchControls referenceGroupingPanel">
+                            <div class="referenceGroupingHeader">
+                                <div class="referenceGroupingHeading">
+                                    <label for="referenceGroupingSourceSelect">Reference sites</label>
+                                    <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
+                                </div>
+                            </div>
+                            <div id="referenceSitePresetFilters" class="referenceSiteChipRow">
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="webnovel.com" checked="checked" />
+                                    <span>Webnovel</span>
+                                </label>
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="wuxiaworld.com" checked="checked" />
+                                    <span>Wuxiaworld</span>
+                                </label>
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="kakuyomu.jp" checked="checked" />
+                                    <span>Kakuyomu</span>
+                                </label>
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="syosetu.com" checked="checked" />
+                                    <span>Syosetu</span>
+                                </label>
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="baka-tsuki.org" checked="checked" />
+                                    <span>Baka-Tsuki</span>
+                                </label>
+                            </div>
+                            <div class="referenceGroupingSourceSelectWrap">
+                                <label for="referenceGroupingSourceSelect">Loaded groups</label>
+                                <select id="referenceGroupingSourceSelect">
+                                    <option value="current" selected="selected">Current site groups</option>
+                                </select>
+                            </div>
+                            <span id="referenceGroupingStatus" class="chapterGroupingHint" hidden="true"></span>
+                        </div>
                         </div>
                     </details>
-                </div>
-                <div id="chapterToolsControls" class="chapterToolsControls">
-                    <label>
-                        <input id="chapterOnlyCheckbox" type="checkbox" />
-                        Keep chapter links only
-                    </label>
-                </div>
-                <div id="smartSelectControls" class="smartSelectControls">
-                    <label for="smartSelectInput">Smart select</label>
-                    <input
-                        id="smartSelectInput"
-                        type="text"
-                        placeholder="Examples: 1-50, 72, prince -annexe"
-                    />
-                    <select id="smartSelectMode">
-                        <option value="include" selected="selected">Select matches</option>
-                        <option value="exclude">Unselect matches</option>
-                    </select>
-                    <button id="smartSelectApplyButton" type="button">Apply</button>
-                </div>
-                <div id="referenceGroupingControls" class="packBatchControls referenceGroupingPanel">
-                    <div class="referenceGroupingHeader">
-                        <div class="referenceGroupingHeading">
-                            <label for="referenceGroupingSourceSelect">Reference sites</label>
-                            <span class="referenceGroupingLead">Auto-detected from the current title, page metadata, and URL.</span>
+                    <details class="chapterWorkflowBlock chapterWorkflowBlockGroups" data-collapsible-panel="chapter-groups" open="open">
+                        <summary class="chapterWorkflowBlockSummary">
+                            <span class="chapterWorkflowBlockSummaryText">
+                                <span class="chapterWorkflowBlockTitle">Browse volumes and groups</span>
+                                <span class="chapterWorkflowBlockLead">Switch chapter view, then pick and download one or many groups.</span>
+                            </span>
+                        </summary>
+                        <div class="chapterWorkflowBlockBody">
+                            <div id="chapterGroupingControls" class="packBatchControls">
+                            <label for="chapterGroupingModeSelect">Chapter view</label>
+                            <select id="chapterGroupingModeSelect">
+                                <option value="flat" selected="selected">Flat chapter list</option>
+                                <option value="groups">Detected groups</option>
+                                <option value="volumes">Volumes / books</option>
+                            </select>
+                            <label class="chapterGroupingToggle" for="collapseChapterGroupsCheckbox">
+                                <input
+                                    id="collapseChapterGroupsCheckbox"
+                                    type="checkbox"
+                                    checked="checked"
+                                />
+                                Collapse groups by default
+                            </label>
+                            <span id="chapterGroupingHint" class="chapterGroupingHint" hidden="true"></span>
                         </div>
-                    </div>
-                    <div id="referenceSitePresetFilters" class="referenceSiteChipRow">
-                        <label class="referenceSiteChip">
-                            <input type="checkbox" data-reference-host="webnovel.com" checked="checked" />
-                            <span>Webnovel</span>
-                        </label>
-                        <label class="referenceSiteChip">
-                            <input type="checkbox" data-reference-host="wuxiaworld.com" checked="checked" />
-                            <span>Wuxiaworld</span>
-                        </label>
-                        <label class="referenceSiteChip">
-                            <input type="checkbox" data-reference-host="kakuyomu.jp" checked="checked" />
-                            <span>Kakuyomu</span>
-                        </label>
-                        <label class="referenceSiteChip">
-                            <input type="checkbox" data-reference-host="syosetu.com" checked="checked" />
-                            <span>Syosetu</span>
-                        </label>
-                        <label class="referenceSiteChip">
-                            <input type="checkbox" data-reference-host="baka-tsuki.org" checked="checked" />
-                            <span>Baka-Tsuki</span>
-                        </label>
-                    </div>
-                    <div class="referenceGroupingSourceSelectWrap">
-                        <label for="referenceGroupingSourceSelect">Loaded groups</label>
-                        <select id="referenceGroupingSourceSelect">
-                            <option value="current" selected="selected">Current site groups</option>
-                        </select>
-                    </div>
-                    <span id="referenceGroupingStatus" class="chapterGroupingHint" hidden="true"></span>
-                </div>
-                <div id="chapterGroupingControls" class="packBatchControls">
-                    <label for="chapterGroupingModeSelect">Chapter view</label>
-                    <select id="chapterGroupingModeSelect">
-                        <option value="flat" selected="selected">Flat chapter list</option>
-                        <option value="groups">Detected groups</option>
-                        <option value="volumes">Volumes / books</option>
-                    </select>
-                    <label class="chapterGroupingToggle" for="collapseChapterGroupsCheckbox">
-                        <input
-                            id="collapseChapterGroupsCheckbox"
-                            type="checkbox"
-                            checked="checked"
-                        />
-                        Collapse groups by default
-                    </label>
-                    <span id="chapterGroupingHint" class="chapterGroupingHint" hidden="true"></span>
-                </div>
-                <div id="chapterGroupBrowserSection" class="chapterGroupBrowserSection" hidden="true">
-                    <div class="chapterGroupBrowserHeader">
-                        <div class="chapterGroupBrowserIntro">
-                            <strong id="chapterGroupBrowserTitle">Detected groups</strong>
-                            <p id="chapterGroupSummary">Mark one or more groups, then download the selection or everything.</p>
+                            <div id="chapterGroupBrowserSection" class="chapterGroupBrowserSection" hidden="true">
+                            <div class="chapterGroupBrowserHeader">
+                                <div class="chapterGroupBrowserIntro">
+                                    <strong id="chapterGroupBrowserTitle">Detected groups</strong>
+                                    <p id="chapterGroupSummary">Select one or more groups, then download the selection or everything.</p>
+                                </div>
+                                <div class="chapterGroupBrowserHeaderActions">
+                                    <button id="expandAllChapterGroupsButton" type="button">Expand All</button>
+                                    <button id="collapseAllChapterGroupsButton" type="button">Collapse All</button>
+                                </div>
+                            </div>
+                            <div id="groupPackControls" class="chapterGroupToolbar" hidden="true">
+                                <input
+                                    id="chapterGroupSearchInput"
+                                    type="text"
+                                    placeholder="Filter groups, sections, or ranges"
+                                    aria-label="Filter groups"
+                                />
+                                <select id="chapterGroupSelect" aria-label="Current group"></select>
+                                <button id="selectAllChapterGroupsButton" type="button">Select all</button>
+                                <button id="clearSelectedChapterGroupsButton" type="button">Deselect all</button>
+                                <button id="downloadMarkedChapterGroupsButton" type="button">Download selected</button>
+                                <button id="downloadAllChapterGroupsButton" type="button">Download all</button>
+                            </div>
+                            <div id="chapterGroupEmptyState" class="chapterGroupEmptyState" hidden="true"></div>
+                            <div id="chapterGroupBrowser" class="chapterGroupBrowser"></div>
                         </div>
-                        <div class="chapterGroupBrowserHeaderActions">
-                            <button id="expandAllChapterGroupsButton" type="button">Expand All</button>
-                            <button id="collapseAllChapterGroupsButton" type="button">Collapse All</button>
                         </div>
-                    </div>
-                    <div id="groupPackControls" class="chapterGroupToolbar" hidden="true">
-                        <input
-                            id="chapterGroupSearchInput"
-                            type="text"
-                            placeholder="Filter groups, sections, or ranges"
-                            aria-label="Filter groups"
-                        />
-                        <select id="chapterGroupSelect" aria-label="Current group"></select>
-                        <button id="downloadMarkedChapterGroupsButton" type="button">Download selected</button>
-                        <button id="downloadAllChapterGroupsButton" type="button">Download all</button>
-                    </div>
-                    <div id="chapterGroupEmptyState" class="chapterGroupEmptyState" hidden="true"></div>
-                    <div id="chapterGroupBrowser" class="chapterGroupBrowser"></div>
+                    </details>
                 </div>
             </div>
             <button id="applyChangesButton" hidden="true">__MSG_button_Apply_Changes__</button>

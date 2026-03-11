@@ -58,7 +58,7 @@ class EpubItem {
 
     packInEpub(zipWriter, emptyDocFactory, contentValidator) {
         let content = this.fileContentForEpub(emptyDocFactory, contentValidator);
-        zipWriter.add(this.getZipHref(), new zip.TextReader(content));
+        return zipWriter.add(this.getZipHref(), new zip.TextReader(content));
     }
 
     makeChapterDoc(emptyDocFactory) {
@@ -207,7 +207,7 @@ class ImageInfo extends EpubItem { // eslint-disable-line no-unused-vars
     }
 
     packInEpub(zipWriter) {
-        zipWriter.add(this.getZipHref(),
+        return zipWriter.add(this.getZipHref(),
             new zip.BlobReader(new Blob([this.arraybuffer])));
     }
 
@@ -328,7 +328,7 @@ class FontInfo extends ImageInfo {
     }
 
     packInEpub(zipWriter) {
-        zipWriter.add("OEBPS/Fonts/"+this.fontName,
+        return zipWriter.add("OEBPS/Fonts/"+this.fontName,
             new zip.BlobReader(new Blob([this.arraybuffer])));
     }
 }

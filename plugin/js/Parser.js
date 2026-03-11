@@ -33,6 +33,11 @@ class ParserState {
     constructor() {
         this.webPages = new Map();
         this.chapterListUrl = null;
+        this.nativeChapterGroups = [];
+        this.referenceChapterGroups = [];
+        this.referenceSourceGroups = [];
+        this.referenceChapterGroupSource = null;
+        this.chapterUrlsUI = null;
     }
 
     setPagesToFetch(urls) {
@@ -48,6 +53,23 @@ class ParserState {
             nextPrevChapters = new Set();
             nextPrevChapters.add(util.normalizeUrlForCompare(page.sourceUrl));
         }
+        this.nativeChapterGroups = util.buildChapterGroups(urls);
+        this.referenceChapterGroups = util.mapReferenceChapterGroupsToChapters(this.referenceSourceGroups, urls);
+    }
+
+    setReferenceChapterGroups(referenceGroups, source, urls) {
+        this.referenceSourceGroups = Array.isArray(referenceGroups) ? referenceGroups : [];
+        this.referenceChapterGroupSource = source ?? null;
+        this.referenceChapterGroups = util.mapReferenceChapterGroupsToChapters(
+            this.referenceSourceGroups,
+            urls ?? [...this.webPages.values()]
+        );
+    }
+
+    clearReferenceChapterGroups() {
+        this.referenceSourceGroups = [];
+        this.referenceChapterGroupSource = null;
+        this.referenceChapterGroups = [];
     }
 }
 
@@ -72,6 +94,42 @@ class Parser {
 
     getPagesToFetch() {
         return this.state.webPages;
+    }
+
+    getChapterGroups() {
+        return (0 < (this.state.referenceChapterGroups?.length ?? 0))
+            ? this.state.referenceChapterGroups
+            : (this.state.nativeChapterGroups ?? []);
+    }
+
+    getNativeChapterGroups() {
+        return this.state.nativeChapterGroups ?? [];
+    }
+
+    getReferenceChapterGroups() {
+        return this.state.referenceChapterGroups ?? [];
+    }
+
+    getReferenceChapterGroupSource() {
+        return this.state.referenceChapterGroupSource ?? null;
+    }
+
+    setReferenceChapterGroups(referenceGroups, source) {
+        this.state.setReferenceChapterGroups(referenceGroups, source, [...this.getPagesToFetch().values()]);
+        this.refreshChapterGroupingUi();
+    }
+
+    clearReferenceChapterGroups() {
+        this.state.clearReferenceChapterGroups();
+        this.refreshChapterGroupingUi();
+    }
+
+    setChapterUrlsUI(chapterUrlsUI) {
+        this.state.chapterUrlsUI = chapterUrlsUI;
+    }
+
+    refreshChapterGroupingUi() {
+        this.state.chapterUrlsUI?.refreshChapterGroupControls?.([...this.getPagesToFetch().values()]);
     }
     
     //Use this option if the parser isn't sending the correct HTTP header
@@ -453,6 +511,7 @@ class Parser {
         this.state.firstPageDom = firstPageDom;
         this.state.chapterListUrl = url;
         let chapterUrlsUI = new ChapterUrlsUI(this);
+        this.setChapterUrlsUI(chapterUrlsUI);
         this.userPreferences.setReadingListCheckbox(url);
 
         try {
@@ -463,6 +522,7 @@ class Parser {
             chapters = this.cleanWebPageUrls(chapters);
             chapters?.forEach(chapter => chapter.title = chapter.title?.trim());
             await this.userPreferences.readingList.deselectOldChapters(url, chapters);
+            this.state.setPagesToFetch(chapters);
             chapterUrlsUI.populateChapterUrlsTable(chapters);
             if (0 < chapters.length) {
                 if (chapters[0].sourceUrl === url) {
@@ -471,7 +531,6 @@ class Parser {
                 }
                 ProgressBar.setValue(0);
             }
-            this.state.setPagesToFetch(chapters);
             chapterUrlsUI.connectButtonHandlers();
         } catch (err) {
             ErrorLog.showErrorMessage(err);
@@ -524,22 +583,30 @@ class Parser {
         return this.fetchWebPages();
     }
 
-    setUiToShowLoadingProgress(length) {
+    setUiToShowLoadingProgress(length, loadedCount = 0) {
         main.getPackEpubButton().disabled = true;
         ProgressBar.setMax(length + 1);
-        ProgressBar.setValue(1);
+        ProgressBar.setValue(loadedCount + 1);
     }
 
     async fetchWebPages() {
-        let pagesToFetch = [...this.state.webPages.values()].filter(c => c.isIncludeable);
-        if (pagesToFetch.length === 0) {
+        let allIncludedPages = [...this.state.webPages.values()].filter(c => c.isIncludeable);
+        if (allIncludedPages.length === 0) {
             return Promise.reject(new Error("No chapters found."));
         }
 
-        this.setUiToShowLoadingProgress(pagesToFetch.length);
+        let pagesToFetch = allIncludedPages.filter(c => (c.rawDom == null) && (c.error == null));
+        let loadedCount = allIncludedPages.length - pagesToFetch.length;
+        this.setUiToShowLoadingProgress(allIncludedPages.length, loadedCount);
 
-        this.imageCollector.reset();
-        this.imageCollector.setCoverImageUrl(CoverImageUI.getCoverImageUrl());
+        if (loadedCount === 0) {
+            this.imageCollector.reset();
+            this.imageCollector.setCoverImageUrl(CoverImageUI.getCoverImageUrl());
+        }
+
+        if (pagesToFetch.length === 0) {
+            return;
+        }
 
         await this.addParsersToPages(pagesToFetch);
         let index = 0;
@@ -557,7 +624,9 @@ class Parser {
         }
         catch (err)
         {
-            ErrorLog.log(err);
+            if (!util.isAbortError(err)) {
+                ErrorLog.log(err);
+            }
         }
     }
 
@@ -572,10 +641,16 @@ class Parser {
     async fetchWebPageContent(webPage) {
         ChapterUrlsUI.showDownloadState(webPage.row, ChapterUrlsUI.DOWNLOAD_STATE_SLEEPING);
         await this.rateLimitDelay();
+        if (util.sleepController.signal.aborted) {
+            throw new DOMException("The user aborted a request.", "AbortError");
+        }
         ChapterUrlsUI.showDownloadState(webPage.row, ChapterUrlsUI.DOWNLOAD_STATE_DOWNLOADING);
         let pageParser = webPage.parser;
         try {
             let webPageDom = await pageParser.fetchChapter(webPage.sourceUrl);
+            if (util.sleepController.signal.aborted) {
+                throw new DOMException("The user aborted a request.", "AbortError");
+            }
             delete webPage.error;
             webPage.rawDom = webPageDom;
             pageParser.preprocessRawDom(webPageDom);
@@ -587,6 +662,9 @@ class Parser {
             }
             return pageParser.fetchImagesUsedInDocument(content, webPage);
         } catch (error) {
+            if (util.isAbortError(error)) {
+                throw error;
+            }
             if (this.userPreferences.skipChaptersThatFailFetch.value) {
                 ErrorLog.log(error);
                 webPage.error = error;

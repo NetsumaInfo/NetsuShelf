@@ -592,3 +592,116 @@ QUnit.test("getParamFromUrl", function (assert) {
     actual = util.getParamFromUrl("https://www.baka-tsuki.org/project/index.php?title=File:HSDxD_v01_cover.jpg", "nonesuch");
     assert.equal(actual, null);
 });
+
+QUnit.test("buildChapterGroups_fromNewArcMarkers", function (assert) {
+    let chapters = [
+        { sourceUrl: "https://example.com/chapter-1", title: "Chapter 1", newArc: "Arrival" },
+        { sourceUrl: "https://example.com/chapter-2", title: "Chapter 2", newArc: null },
+        { sourceUrl: "https://example.com/chapter-3", title: "Chapter 3", newArc: "Siege" }
+    ];
+
+    let actual = util.buildChapterGroups(chapters);
+
+    assert.equal(actual.length, 2);
+    assert.equal(actual[0].displayTitle, "Arrival");
+    assert.equal(actual[0].count, 2);
+    assert.equal(actual[0].rangeLabel, "1-2");
+    assert.equal(actual[1].displayTitle, "Siege");
+    assert.equal(actual[1].count, 1);
+});
+
+QUnit.test("buildChapterGroups_fromTitleRegex", function (assert) {
+    let chapters = [
+        { sourceUrl: "https://example.com/vol-1/chapter-1", title: "Vol 1 Chapter 1", newArc: null },
+        { sourceUrl: "https://example.com/vol-1/chapter-2", title: "Vol 1 Chapter 2", newArc: null },
+        { sourceUrl: "https://example.com/book-2/chapter-1", title: "Book 2 Chapter 1", newArc: null }
+    ];
+
+    let actual = util.buildChapterGroups(chapters);
+
+    assert.equal(actual.length, 2);
+    assert.equal(actual[0].displayTitle, "Volume 1");
+    assert.equal(actual[0].count, 2);
+    assert.equal(actual[1].displayTitle, "Book 2");
+    assert.equal(actual[1].count, 1);
+});
+
+QUnit.test("buildChapterGroups_fromExplicitMetadata", function (assert) {
+    let chapters = [
+        {
+            sourceUrl: "https://example.com/chapter-1",
+            title: "Chapter 1",
+            groupType: "volume",
+            groupIndex: 1,
+            groupTitle: "The Beginning",
+            groupLabel: "Volume 1"
+        },
+        {
+            sourceUrl: "https://example.com/chapter-2",
+            title: "Chapter 2",
+            groupType: "volume",
+            groupIndex: 1,
+            groupTitle: "The Beginning",
+            groupLabel: "Volume 1"
+        }
+    ];
+
+    let actual = util.buildChapterGroups(chapters);
+
+    assert.equal(actual.length, 1);
+    assert.equal(actual[0].displayTitle, "Volume 1 - The Beginning");
+    assert.equal(actual[0].count, 2);
+});
+
+QUnit.test("buildChapterGroups_ignoresPartSuffixInChapterTitles", function (assert) {
+    let chapters = [
+        { sourceUrl: "https://example.com/chapitre-117-la-chasse-partie-1", title: "Chapitre 117 : La Chasse (Partie 1)" },
+        { sourceUrl: "https://example.com/chapitre-118-la-chasse-part-2", title: "Chapitre 118 : La Chasse (Part 2)" },
+        { sourceUrl: "https://example.com/chapitre-732-un-depart-ideal", title: "Chapitre 732 : Un départ idéal" }
+    ];
+
+    let actual = util.buildChapterGroups(chapters);
+
+    assert.equal(actual.length, 1);
+    assert.equal(actual[0].displayTitle, "Chapters 117-732");
+    assert.equal(actual[0].count, 3);
+});
+
+QUnit.test("mapReferenceChapterGroupsToChapters_usesReferenceRanges", function (assert) {
+    let chapters = [
+        { sourceUrl: "https://target.example/chapter-1", title: "Chapter 1" },
+        { sourceUrl: "https://target.example/chapter-2", title: "Chapter 2" },
+        { sourceUrl: "https://target.example/chapter-3", title: "Chapter 3" },
+        { sourceUrl: "https://target.example/chapter-4", title: "Chapter 4" }
+    ];
+    let referenceGroups = [
+        {
+            key: "volume:1",
+            type: "volume",
+            index: "1",
+            label: "Volume 1",
+            title: "Arrival",
+            startChapter: 1,
+            endChapter: 2
+        },
+        {
+            key: "volume:2",
+            type: "volume",
+            index: "2",
+            label: "Volume 2",
+            title: "Siege",
+            startChapter: 3,
+            endChapter: 4
+        }
+    ];
+
+    let actual = util.mapReferenceChapterGroupsToChapters(referenceGroups, chapters);
+
+    assert.equal(actual.length, 2);
+    assert.equal(actual[0].displayTitle, "Volume 1 - Arrival");
+    assert.equal(actual[0].count, 2);
+    assert.equal(actual[0].chapters[0], chapters[0]);
+    assert.equal(actual[1].displayTitle, "Volume 2 - Siege");
+    assert.equal(actual[1].count, 2);
+    assert.equal(actual[1].chapters[1], chapters[3]);
+});

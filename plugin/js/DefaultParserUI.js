@@ -86,12 +86,15 @@ class DefaultParserUI { // eslint-disable-line no-unused-vars
     constructor() {
     }
 
-    static setupDefaultParserUI(hostname, parser) {
+    static setupDefaultParserUI(hostname, parser, sourceDom) {
         DefaultParserUI.copyInstructions();
         DefaultParserUI.setDefaultParserUiVisibility(true);
         DefaultParserUI.populateDefaultParserUI(hostname, parser);
+        document.getElementById("autoDetectDefaultParserButton").onclick =
+            () => DefaultParserUI.onAutoDetectClicked(parser, sourceDom, false);
         document.getElementById("testDefaultParserButton").onclick = DefaultParserUI.testDefaultParser.bind(null, parser);
         document.getElementById("finisheddefaultParserButton").onclick = DefaultParserUI.onFinishedClicked.bind(null, parser);
+        DefaultParserUI.autoDetectIfNeeded(parser, sourceDom);
     }
 
     static onFinishedClicked(parser) {
@@ -124,6 +127,309 @@ class DefaultParserUI { // eslint-disable-line no-unused-vars
             DefaultParserUI.getUnwantedElementsCssInput().value = config.removeCss;
             DefaultParserUI.getTestChapterUrlInput().value = config.testUrl;
         }
+    }
+
+    static autoDetectIfNeeded(parser, sourceDom) {
+        let hostname = DefaultParserUI.getDefaultParserHostnameInput().value;
+        let config = parser.siteConfigs.getConfigForSite(hostname);
+        if ((config == null)
+            || util.isNullOrEmpty(config.contentCss)
+            || (config.contentCss === "body")) {
+            DefaultParserUI.onAutoDetectClicked(parser, sourceDom, true);
+        }
+    }
+
+    static async onAutoDetectClicked(parser, sourceDom, fromSetup) {
+        let autoButton = document.getElementById("autoDetectDefaultParserButton");
+        let originalText = autoButton.textContent;
+        autoButton.disabled = true;
+        autoButton.textContent = "Detecting...";
+        try {
+            let testUrl = DefaultParserUI.ensureTestUrl(parser, sourceDom);
+            if (util.isNullOrEmpty(testUrl)) {
+                if (!fromSetup) {
+                    alert(UIText.Warning.warningNoChapterUrl);
+                }
+                return;
+            }
+            let xhr = await HttpClient.wrapFetch(testUrl);
+            let dom = util.sanitize(xhr.responseXML.querySelector("*"));
+            let detected = DefaultParserUI.detectSelectors(dom);
+            DefaultParserUI.getContentCssInput().value = detected.contentCss;
+            DefaultParserUI.getChapterTitleCssInput().value = detected.titleCss;
+            DefaultParserUI.getUnwantedElementsCssInput().value = detected.removeCss;
+            DefaultParserUI.getTestChapterUrlInput().value = testUrl;
+            DefaultParserUI.AddConfiguration(parser);
+            await DefaultParserUI.testDefaultParser(parser);
+        } catch (err) {
+            if (!fromSetup) {
+                ErrorLog.showErrorMessage(err);
+            }
+        } finally {
+            autoButton.textContent = originalText;
+            autoButton.disabled = false;
+        }
+    }
+
+    static ensureTestUrl(parser, sourceDom) {
+        let input = DefaultParserUI.getTestChapterUrlInput();
+        let testUrl = input.value.trim();
+        if (!util.isNullOrEmpty(testUrl)) {
+            return testUrl;
+        }
+
+        let firstChapter = parser.getPagesToFetch().values().next();
+        if (!firstChapter.done && !util.isNullOrEmpty(firstChapter.value.sourceUrl)) {
+            testUrl = firstChapter.value.sourceUrl;
+        } else if ((sourceDom != null) && !util.isNullOrEmpty(sourceDom.baseURI)) {
+            testUrl = sourceDom.baseURI;
+        } else if (!util.isNullOrEmpty(parser.state.chapterListUrl)) {
+            testUrl = parser.state.chapterListUrl;
+        }
+
+        input.value = testUrl;
+        return testUrl;
+    }
+
+    static detectSelectors(dom) {
+        let contentElement = DefaultParserUI.findBestContentElement(dom);
+        let titleElement = DefaultParserUI.findBestTitleElement(dom, contentElement);
+        let removeCss = DefaultParserUI.detectRemoveCss(contentElement);
+
+        return {
+            contentCss: DefaultParserUI.uniqueSelector(dom, contentElement),
+            titleCss: (titleElement === null) ? "" : DefaultParserUI.uniqueSelector(dom, titleElement),
+            removeCss: removeCss
+        };
+    }
+
+    static findBestContentElement(dom) {
+        let preferredSelectors = [
+            "article",
+            "main article",
+            "main",
+            "[itemprop='articleBody']",
+            ".entry-content",
+            ".post-content",
+            ".chapter-content",
+            ".chapter",
+            ".content",
+            "#content",
+            "#chapter",
+            "#chapter-content"
+        ];
+        let candidates = [];
+        for (let selector of preferredSelectors) {
+            for (let element of dom.querySelectorAll(selector)) {
+                candidates.push(element);
+            }
+        }
+        for (let element of [...dom.body.querySelectorAll("article, main, section, div")].slice(0, 3000)) {
+            candidates.push(element);
+        }
+
+        let seen = new Set();
+        let uniqueCandidates = [];
+        for (let element of candidates) {
+            if (!seen.has(element)) {
+                seen.add(element);
+                uniqueCandidates.push(element);
+            }
+        }
+
+        let bestElement = dom.body;
+        let bestScore = -Infinity;
+        for (let element of uniqueCandidates) {
+            let score = DefaultParserUI.scoreContentCandidate(element);
+            if (score > bestScore) {
+                bestElement = element;
+                bestScore = score;
+            }
+        }
+        return bestElement;
+    }
+
+    static scoreContentCandidate(element) {
+        let text = (element.textContent || "").replace(/\s+/g, " ").trim();
+        let textLength = text.length;
+        if (textLength < 200) {
+            return -100000;
+        }
+        let linkTextLength = [...element.querySelectorAll("a")]
+            .map(a => (a.textContent || "").trim().length)
+            .reduce((acc, value) => acc + value, 0);
+        let paragraphCount = element.querySelectorAll("p").length;
+        let headingCount = element.querySelectorAll("h1, h2, h3").length;
+        let noisyChildren = element.querySelectorAll(
+            "nav, aside, footer, form, .comments, #comments, .share, .social, .ads, .advert, .related"
+        ).length;
+        let linkDensity = linkTextLength / Math.max(textLength, 1);
+        let score = textLength
+            + (paragraphCount * 90)
+            + (headingCount * 45)
+            - (linkDensity * 850)
+            - (noisyChildren * 100);
+
+        if (DefaultParserUI.hasNoisyClassOrId(element)) {
+            score -= 400;
+        }
+        if (element.tagName.toLowerCase() === "body") {
+            score -= 250;
+        }
+        return score;
+    }
+
+    static hasNoisyClassOrId(element) {
+        let text = ((element.className || "") + " " + (element.id || "")).toLowerCase();
+        return /(header|footer|nav|menu|sidebar|comment|share|social|advert|ads|related|popup|cookie)/.test(text);
+    }
+
+    static findBestTitleElement(dom, contentElement) {
+        if (contentElement == null) {
+            return null;
+        }
+
+        let selectors = [
+            "h1",
+            "h2",
+            ".chapter-title",
+            ".entry-title",
+            ".post-title",
+            ".title"
+        ];
+
+        for (let selector of selectors) {
+            let found = contentElement.querySelector(selector);
+            if (DefaultParserUI.isValidTitleElement(found)) {
+                return found;
+            }
+        }
+        for (let selector of selectors) {
+            let found = dom.querySelector(selector);
+            if (DefaultParserUI.isValidTitleElement(found)) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    static isValidTitleElement(element) {
+        if (element == null) {
+            return false;
+        }
+        let textLength = (element.textContent || "").trim().length;
+        return (4 <= textLength) && (textLength <= 180);
+    }
+
+    static detectRemoveCss(contentElement) {
+        let defaults = ["script[src]", "iframe", "noscript"];
+        if (contentElement == null) {
+            return defaults.join(", ");
+        }
+
+        let optional = [
+            "header",
+            "footer",
+            "nav",
+            "aside",
+            ".comments",
+            "#comments",
+            ".share",
+            ".social",
+            ".ads",
+            ".advert",
+            ".related",
+            ".post-navigation",
+            ".pagination"
+        ];
+        let selectors = [...defaults];
+        optional.forEach((selector) => {
+            if (contentElement.querySelector(selector) != null) {
+                selectors.push(selector);
+            }
+        });
+        return [...new Set(selectors)].join(", ");
+    }
+
+    static uniqueSelector(dom, element) {
+        if ((element == null) || (element.nodeType !== 1)) {
+            return "body";
+        }
+
+        if (!util.isNullOrEmpty(element.id)) {
+            let byId = "#" + DefaultParserUI.escapeCss(element.id);
+            if (DefaultParserUI.selectorIsUnique(dom, byId)) {
+                return byId;
+            }
+        }
+
+        let tag = element.tagName.toLowerCase();
+        let classes = [...element.classList]
+            .filter(DefaultParserUI.isUsefulClassName)
+            .slice(0, 2)
+            .map(DefaultParserUI.escapeCss);
+        if (0 < classes.length) {
+            let byClass = tag + "." + classes.join(".");
+            if (DefaultParserUI.selectorIsUnique(dom, byClass)) {
+                return byClass;
+            }
+        }
+
+        let parts = [];
+        let node = element;
+        while ((node != null) && (node.nodeType === 1) && (node.tagName.toLowerCase() !== "html")) {
+            let part = node.tagName.toLowerCase();
+            if (!util.isNullOrEmpty(node.id)) {
+                part += "#" + DefaultParserUI.escapeCss(node.id);
+                parts.unshift(part);
+                break;
+            }
+            let usefulClass = [...node.classList].filter(DefaultParserUI.isUsefulClassName)[0];
+            if (!util.isNullOrEmpty(usefulClass)) {
+                part += "." + DefaultParserUI.escapeCss(usefulClass);
+            }
+            if (node.parentElement != null) {
+                let sameTagSiblings = [...node.parentElement.children].filter(child => child.tagName === node.tagName);
+                if (1 < sameTagSiblings.length) {
+                    part += ":nth-of-type(" + (sameTagSiblings.indexOf(node) + 1) + ")";
+                }
+            }
+            parts.unshift(part);
+            let selector = parts.join(" > ");
+            if (DefaultParserUI.selectorIsUnique(dom, selector)) {
+                return selector;
+            }
+            node = node.parentElement;
+        }
+        return parts.join(" > ");
+    }
+
+    static selectorIsUnique(dom, selector) {
+        try {
+            return dom.querySelectorAll(selector).length === 1;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    static isUsefulClassName(className) {
+        if (util.isNullOrEmpty(className)) {
+            return false;
+        }
+        if (className.length > 48) {
+            return false;
+        }
+        if (/^\d+$/.test(className)) {
+            return false;
+        }
+        return !/(header|footer|nav|menu|sidebar|comment|share|social|advert|ads|related|hidden)/i.test(className);
+    }
+
+    static escapeCss(value) {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(value);
+        }
+        return value.replace(/([ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1");
     }
 
     static setDefaultParserUiVisibility(isVisible) {

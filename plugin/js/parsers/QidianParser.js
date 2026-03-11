@@ -23,6 +23,10 @@ class QidianParser extends Parser {
         }
         let links = Array.from(dom.querySelectorAll("ul.content-list a"));
         if (links.length === 0) {
+            let volumeItems = Array.from(dom.querySelectorAll("div.volume-item"));
+            if (0 < volumeItems.length) {
+                return QidianParser.linksFromVolumeItems(volumeItems);
+            }
             links = Array.from(dom.querySelectorAll("div.volume-item ol a"));
         }
         return links.map(QidianParser.linkToChapter);
@@ -35,6 +39,7 @@ class QidianParser extends Parser {
     }
 
     static linkToChapter(link) {
+        let isSelectable = !QidianParser.isLinkLocked(link);
         let title = link.textContent;
         let element = link.querySelector("strong");
         if (element !== null) {
@@ -47,7 +52,81 @@ class QidianParser extends Parser {
             }
         }
         return {sourceUrl: link.href, title: title, 
-            isIncludeable: !QidianParser.isLinkLocked(link)
+            isIncludeable: isSelectable,
+            isSelectable: isSelectable
+        };
+    }
+
+    static linksFromVolumeItems(volumeItems) {
+        let chapters = [];
+        volumeItems.forEach((volumeItem, index) => {
+            let volumeInfo = QidianParser.extractVolumeInfo(volumeItem, index + 1);
+            let links = Array.from(volumeItem.querySelectorAll("ol a"));
+            links.forEach((link, linkIndex) => {
+                let chapter = QidianParser.linkToChapter(link);
+                chapter.groupType = "volume";
+                chapter.groupIndex = volumeInfo.index;
+                chapter.groupTitle = volumeInfo.title;
+                chapter.groupLabel = volumeInfo.label;
+                chapter.groupKey = volumeInfo.key;
+                chapter.groupSource = "native_toc";
+                chapter.groupCoverUrl = volumeInfo.coverUrl;
+                if (linkIndex === 0) {
+                    chapter.newArc = volumeInfo.displayTitle;
+                }
+                chapters.push(chapter);
+            });
+        });
+        return chapters;
+    }
+
+    static extractVolumeInfo(volumeItem, fallbackIndex) {
+        let headerNodes = [];
+        for (let child of volumeItem.children) {
+            if (child.tagName === "OL") {
+                continue;
+            }
+            if (!util.isNullOrEmpty(child.textContent)) {
+                headerNodes.push(child);
+            }
+            headerNodes = headerNodes.concat(
+                [...child.querySelectorAll("h1, h2, h3, h4, h5, h6, .volume-name, .title, .tit")]
+                    .filter(node => node.closest("ol") === null)
+            );
+        }
+
+        let rawTitle = headerNodes
+            .map(node => node.textContent?.trim())
+            .find(text => !util.isNullOrEmpty(text))
+            ?? `Volume ${fallbackIndex}`;
+
+        let type = "volume";
+        let index = String(fallbackIndex);
+        let label = `Volume ${index}`;
+        let title = null;
+
+        let titleMatch = rawTitle.match(/\b(?:vol(?:ume)?|book)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b[\s:._-]*(.*)$/i);
+        if ((titleMatch != null) && (2 < titleMatch.length)) {
+            index = titleMatch[1].toUpperCase();
+            label = `Volume ${index}`;
+            title = titleMatch[2]?.trim() || null;
+        } else if (!util.isNullOrEmpty(rawTitle)) {
+            title = rawTitle.trim();
+        }
+
+        let displayTitle = title == null
+            ? label
+            : (label.toLowerCase() === title.toLowerCase() ? title : `${label} - ${title}`);
+        let coverUrl = volumeItem.querySelector("img[src]")?.src ?? null;
+
+        return {
+            type: type,
+            index: index,
+            label: label,
+            title: title,
+            key: `volume:${index}`,
+            displayTitle: displayTitle,
+            coverUrl: coverUrl
         };
     }
 

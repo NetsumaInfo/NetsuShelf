@@ -154,14 +154,43 @@ class CoverImageUI { // eslint-disable-line no-unused-vars
         if (inputUrl.onchange == null) {
             inputUrl.onchange = CoverImageUI.showSampleImg;
         }
-        inputUrl.value = url;
-        CoverImageUI.getSampleCoverImg().src = url;
+        inputUrl.value = util.isNullOrEmpty(url) ? "" : url;
+        CoverImageUI.updateSampleCoverImg(inputUrl.value);
     }
 
     /** @private */
     static showSampleImg() {
         let url = CoverImageUI.getCoverImageUrlInput().value;
+        CoverImageUI.updateSampleCoverImg(url);
+    }
+
+    /** @private */
+    static updateSampleCoverImg(url) {
         let sampleImg = CoverImageUI.getSampleCoverImg();
-        sampleImg.src = url;
+        if (sampleImg == null) {
+            return;
+        }
+
+        let trimmedUrl = util.isNullOrEmpty(url) ? "" : url.trim();
+        if (trimmedUrl === "") {
+            sampleImg.hidden = true;
+            sampleImg.removeAttribute("src");
+            return;
+        }
+
+        sampleImg.hidden = true;
+        sampleImg.onload = () => {
+            if (sampleImg.dataset.coverUrl === trimmedUrl) {
+                sampleImg.hidden = false;
+            }
+        };
+        sampleImg.onerror = () => {
+            if (sampleImg.dataset.coverUrl === trimmedUrl) {
+                sampleImg.hidden = true;
+                sampleImg.removeAttribute("src");
+            }
+        };
+        sampleImg.dataset.coverUrl = trimmedUrl;
+        sampleImg.src = trimmedUrl;
     }
 }

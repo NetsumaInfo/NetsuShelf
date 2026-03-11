@@ -41,7 +41,10 @@ class ChapterUrlsUI {
         document.getElementById("copyUrlsToClipboardButton").onclick = this.copyUrlsToClipboard.bind(this);
         document.getElementById("sortChaptersAscButton").onclick = this.sortByChapterAscending.bind(this);
         document.getElementById("sortChaptersDescButton").onclick = this.sortByChapterDescending.bind(this);
-        document.getElementById("chapterOnlyCheckbox").onchange = this.onChapterOnlyToggle.bind(this);
+        let chapterOnlyCheckbox = document.getElementById("chapterOnlyCheckbox");
+        if (chapterOnlyCheckbox != null) {
+            chapterOnlyCheckbox.onchange = this.onChapterOnlyToggle.bind(this);
+        }
         document.getElementById("showChapterUrlsCheckbox").onclick = this.toggleShowUrlsForChapterRanges.bind(this);
         let smartSelectApplyButton = document.getElementById("smartSelectApplyButton");
         if (smartSelectApplyButton != null) {
@@ -64,6 +67,14 @@ class ChapterUrlsUI {
         if (chapterGroupSelect != null) {
             chapterGroupSelect.onchange = this.onChapterGroupSelectionChanged.bind(this);
         }
+        let selectAllChapterGroupsButton = document.getElementById("selectAllChapterGroupsButton");
+        if (selectAllChapterGroupsButton != null) {
+            selectAllChapterGroupsButton.onclick = this.selectAllVisibleChapterGroups.bind(this);
+        }
+        let clearSelectedChapterGroupsButton = document.getElementById("clearSelectedChapterGroupsButton");
+        if (clearSelectedChapterGroupsButton != null) {
+            clearSelectedChapterGroupsButton.onclick = this.clearVisibleMarkedChapterGroups.bind(this);
+        }
         let chapterGroupingModeSelect = ChapterUrlsUI.getChapterGroupingModeSelect();
         if (chapterGroupingModeSelect != null) {
             chapterGroupingModeSelect.onchange = this.onChapterGroupingModeChanged.bind(this);
@@ -80,7 +91,33 @@ class ChapterUrlsUI {
         if (collapseAllChapterGroupsButton != null) {
             collapseAllChapterGroupsButton.onclick = this.collapseAllChapterGroups.bind(this);
         }
+        this.connectRangeChapterSelectHandlers();
         ChapterUrlsUI.modifyApplyChangesButtons(button => button.onclick = this.setTableMode.bind(this));
+    }
+
+    connectRangeChapterSelectHandlers() {
+        ChapterUrlsUI.getRangeSelectBindings().forEach(({ select, input }) => {
+            if (input != null) {
+                input.dataset.selectId = select.id;
+            }
+            if (select.dataset.numericChapterJumpBound !== "true") {
+                select.dataset.rangeInputId = input?.id ?? "";
+                select.addEventListener("keydown", (event) => ChapterUrlsUI.onRangeSelectKeyDown(event, input));
+                select.addEventListener("keypress", ChapterUrlsUI.onRangeSelectKeyPress);
+                select.addEventListener("input", ChapterUrlsUI.onRangeSelectInput);
+                select.addEventListener("blur", () => {
+                    ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+                    ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, true);
+                });
+                select.dataset.numericChapterJumpBound = "true";
+            }
+            if ((input != null) && (input.dataset.numericChapterJumpBound !== "true")) {
+                input.addEventListener("input", (event) => ChapterUrlsUI.onRangeNumberInput(event, select));
+                input.addEventListener("change", (event) => ChapterUrlsUI.onRangeNumberInput(event, select, true));
+                input.addEventListener("blur", () => ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, true));
+                input.dataset.numericChapterJumpBound = "true";
+            }
+        });
     }
 
     populateChapterUrlsTable(chapters) {
@@ -180,6 +217,12 @@ class ChapterUrlsUI {
         util.removeElements(ChapterUrlsUI.getTableRowsWithChapters());
         util.removeElements([...ChapterUrlsUI.getRangeStartChapterSelect().options]);
         util.removeElements([...ChapterUrlsUI.getRangeEndChapterSelect().options]);
+        ChapterUrlsUI.getRangeSelectBindings().forEach(({ input, select }) => {
+            if (input != null) {
+                input.value = "";
+            }
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+        });
         let chapterGroupSelect = ChapterUrlsUI.getChapterGroupSelect();
         if (chapterGroupSelect != null) {
             util.removeElements([...chapterGroupSelect.options]);
@@ -189,7 +232,8 @@ class ChapterUrlsUI {
         if (chapterGroupSearchInput != null) {
             chapterGroupSearchInput.value = "";
         }
-        ["downloadMarkedChapterGroupsButton", "downloadAllChapterGroupsButton"]
+        ["selectAllChapterGroupsButton", "clearSelectedChapterGroupsButton",
+            "downloadMarkedChapterGroupsButton", "downloadAllChapterGroupsButton"]
             .forEach((elementId) => {
                 let button = document.getElementById(elementId);
                 if (button != null) {
@@ -224,7 +268,7 @@ class ChapterUrlsUI {
         }
         let chapterGroupSummary = ChapterUrlsUI.getChapterGroupSummary();
         if (chapterGroupSummary != null) {
-            chapterGroupSummary.textContent = "Mark one or more groups, then download the selection or everything.";
+            chapterGroupSummary.textContent = "Select one or more groups, then download the selection or everything.";
         }
     }
 
@@ -250,14 +294,19 @@ class ChapterUrlsUI {
         let rangeEnd = ChapterUrlsUI.getRangeEndChapterSelect();
 
         rangeStart.onchange = null;
+        rangeStart.oninput = null;
         rangeEnd.onchange = null;
+        rangeEnd.oninput = null;
         
         rangeStart.selectedIndex = 0;
         rangeEnd.selectedIndex = rangeEnd.length - 1;
         ChapterUrlsUI.setChapterCount(rangeStart.selectedIndex, rangeEnd.selectedIndex);
         
         rangeStart.onchange = ChapterUrlsUI.onRangeChanged;
+        rangeStart.oninput = ChapterUrlsUI.onRangeChanged;
         rangeEnd.onchange = ChapterUrlsUI.onRangeChanged;
+        rangeEnd.oninput = ChapterUrlsUI.onRangeChanged;
+        ChapterUrlsUI.syncRangeNumberInputs(true);
     }
  
     /** @private */
@@ -280,12 +329,179 @@ class ChapterUrlsUI {
             row.hidden = !inRange || hiddenByChapterOnly;
         }
         ChapterUrlsUI.setChapterCount(startIndex, endIndex);
+        ChapterUrlsUI.syncRangeNumberInputs();
         ChapterUrlsUI.syncChapterGroupBrowserSelection();
     }
 
     static selectionToRowIndex(selectElement) {
         let selectedIndex = selectElement.selectedIndex;
         return selectedIndex + 1;
+    }
+
+    static onRangeSelectKeyDown(event, input) {
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+
+        let select = event.currentTarget;
+        if (select == null) {
+            return;
+        }
+
+        if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            if (input != null) {
+                input.value = "";
+            }
+            return;
+        }
+
+        if (event.key === "Backspace") {
+            let currentQuery = select.dataset.chapterJumpQuery ?? "";
+            if (currentQuery === "") {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            let nextQuery = currentQuery.slice(0, -1);
+            ChapterUrlsUI.applyRangeSelectNumericQuery(select, input, nextQuery);
+            return;
+        }
+
+        if (/^\d$/.test(event.key) === false) {
+            if (event.key.length === 1) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+            return;
+        }
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        let query = ChapterUrlsUI.buildRangeSelectTypeAheadQuery(select, event.key);
+        ChapterUrlsUI.applyRangeSelectNumericQuery(select, input, query);
+    }
+
+    static onRangeSelectKeyPress(event) {
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+        if (event.key.length !== 1) {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+
+    static onRangeSelectInput() {
+        ChapterUrlsUI.onRangeChanged();
+    }
+
+    static onRangeNumberInput(event, select, exactOnly = false) {
+        let input = event.currentTarget;
+        if ((input == null) || (select == null)) {
+            return;
+        }
+        let query = input.value.replace(/\D+/g, "").trim();
+        if (input.value !== query) {
+            input.value = query;
+        }
+        if (query === "") {
+            return;
+        }
+        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query, exactOnly);
+    }
+
+    static buildRangeSelectTypeAheadQuery(select, digit) {
+        let previousQuery = select.dataset.chapterJumpQuery ?? "";
+        let previousTimestamp = parseInt(select.dataset.chapterJumpTimestamp ?? "0", 10);
+        let now = Date.now();
+        let query = ((now - previousTimestamp) > ChapterUrlsUI.RANGE_SELECT_BUFFER_RESET_MS)
+            ? digit
+            : previousQuery + digit;
+        ChapterUrlsUI.storeRangeSelectTypeAhead(select, query);
+        return query;
+    }
+
+    static storeRangeSelectTypeAhead(select, query) {
+        select.dataset.chapterJumpQuery = query;
+        select.dataset.chapterJumpTimestamp = String(Date.now());
+    }
+
+    static resetRangeSelectTypeAhead(eventOrSelect) {
+        let select = eventOrSelect?.currentTarget ?? eventOrSelect;
+        if (select == null) {
+            return;
+        }
+        delete select.dataset.chapterJumpQuery;
+        delete select.dataset.chapterJumpTimestamp;
+    }
+
+    static applyRangeSelectNumericQuery(select, input, query) {
+        if (query === "") {
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            if (input != null) {
+                input.value = "";
+            }
+            return;
+        }
+        ChapterUrlsUI.storeRangeSelectTypeAhead(select, query);
+        if (input != null) {
+            input.focus();
+            input.value = query;
+            input.setSelectionRange(query.length, query.length);
+        }
+        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query);
+    }
+
+    static selectRangeOptionFromNumericQuery(select, query, exactOnly = false) {
+        let visibleOptions = [...select.options].filter(option => !option.hidden);
+        if (visibleOptions.length === 0) {
+            return;
+        }
+
+        let exactMatch = visibleOptions.find(option => ChapterUrlsUI.optionHasChapterNumberMatch(option, query, true));
+        let matchedOption = exactMatch;
+        if ((matchedOption == null) && !exactOnly) {
+            matchedOption = visibleOptions.find(option => ChapterUrlsUI.optionHasChapterNumberMatch(option, query, false));
+        }
+        if (matchedOption == null) {
+            return;
+        }
+
+        if (select.selectedIndex === matchedOption.index) {
+            return;
+        }
+
+        select.selectedIndex = matchedOption.index;
+        ChapterUrlsUI.onRangeChanged();
+    }
+
+    static optionHasChapterNumberMatch(option, query, exact) {
+        let chapterNumber = option.dataset.chapterNumber ?? "";
+        return exact
+            ? (chapterNumber === query)
+            : chapterNumber.startsWith(query);
+    }
+
+    static syncRangeNumberInputs(force = false) {
+        ChapterUrlsUI.getRangeSelectBindings()
+            .forEach(({ select, input }) => ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, force));
+    }
+
+    static syncRangeNumberInputFromSelect(select, input, force = false) {
+        if ((select == null) || (input == null)) {
+            return;
+        }
+        if (!force && (document.activeElement === input)) {
+            return;
+        }
+        let selectedOption = select.options[select.selectedIndex] ?? null;
+        input.value = selectedOption?.dataset.chapterNumber ?? "";
     }
 
     /** @private */
@@ -306,9 +522,30 @@ class ChapterUrlsUI {
         return document.getElementById("selectRangeStartChapter");
     }
 
+    static getRangeStartChapterNumberInput() {
+        return document.getElementById("selectRangeStartChapterNumber");
+    }
+
     /** @private */
     static getRangeEndChapterSelect() {
         return document.getElementById("selectRangeEndChapter");
+    }
+
+    static getRangeEndChapterNumberInput() {
+        return document.getElementById("selectRangeEndChapterNumber");
+    }
+
+    static getRangeSelectBindings() {
+        return [
+            {
+                select: ChapterUrlsUI.getRangeStartChapterSelect(),
+                input: ChapterUrlsUI.getRangeStartChapterNumberInput()
+            },
+            {
+                select: ChapterUrlsUI.getRangeEndChapterSelect(),
+                input: ChapterUrlsUI.getRangeEndChapterNumberInput()
+            }
+        ].filter(binding => binding.select != null);
     }
 
     /** @private */
@@ -557,7 +794,12 @@ class ChapterUrlsUI {
 
     static appendOptionToSelect(select, value, chapter, memberForTextOption) {
         let option = new Option(chapter[memberForTextOption], value);
+        option.dataset.chapterNumber = String(ChapterUrlsUI.getSelectableChapterNumber(chapter, value + 1));
         select.add(option);
+    }
+
+    static getSelectableChapterNumber(chapter, fallbackIndex) {
+        return ChapterUrlsUI.extractChapterNumber(chapter) ?? fallbackIndex;
     }
 
     /** @private */
@@ -1184,7 +1426,7 @@ class ChapterUrlsUI {
 
         let hasVisibleOption = options.some(option => !option.hidden);
         let visibleOptionCount = options.filter(option => !option.hidden).length;
-        ["downloadAllChapterGroupsButton",
+        ["selectAllChapterGroupsButton", "downloadAllChapterGroupsButton",
             "expandAllChapterGroupsButton", "collapseAllChapterGroupsButton"]
             .forEach((elementId) => {
                 let button = document.getElementById(elementId);
@@ -1194,7 +1436,7 @@ class ChapterUrlsUI {
             });
         let markedGroupIds = new Set(this.getMarkedChapterGroupIds());
         let hasVisibleMarkedOption = options.some(option => !option.hidden && markedGroupIds.has(option.value));
-        ["downloadMarkedChapterGroupsButton"]
+        ["clearSelectedChapterGroupsButton", "downloadMarkedChapterGroupsButton"]
             .forEach((elementId) => {
                 let button = document.getElementById(elementId);
                 if (button != null) {
@@ -1229,6 +1471,18 @@ class ChapterUrlsUI {
         return [...this.markedChapterGroupIds];
     }
 
+    selectAllVisibleChapterGroups() {
+        ChapterUrlsUI.getVisibleChapterGroupIds()
+            .forEach((groupId) => this.markedChapterGroupIds.add(groupId));
+        this.syncMarkedChapterGroupsUi();
+    }
+
+    clearVisibleMarkedChapterGroups() {
+        ChapterUrlsUI.getVisibleChapterGroupIds()
+            .forEach((groupId) => this.markedChapterGroupIds.delete(groupId));
+        this.syncMarkedChapterGroupsUi();
+    }
+
     syncMarkedChapterGroupsUi() {
         let browser = ChapterUrlsUI.getChapterGroupBrowser();
         let markedIds = new Set(this.getMarkedChapterGroupIds());
@@ -1247,7 +1501,25 @@ class ChapterUrlsUI {
             }
         }
 
-        let visibleMarkedCount = this.visibleChapterGroups.filter(group => markedIds.has(group.id)).length;
+        let visibleGroupIds = new Set(ChapterUrlsUI.getVisibleChapterGroupIds());
+        let visibleGroupCount = visibleGroupIds.size;
+        let visibleMarkedCount = this.visibleChapterGroups
+            .filter(group => visibleGroupIds.has(group.id) && markedIds.has(group.id))
+            .length;
+        let selectAllButton = document.getElementById("selectAllChapterGroupsButton");
+        if (selectAllButton != null) {
+            selectAllButton.disabled = (visibleGroupCount === 0) || (visibleMarkedCount === visibleGroupCount);
+            selectAllButton.textContent = visibleGroupCount === 0
+                ? "Select all"
+                : `Select all (${visibleGroupCount})`;
+        }
+        let clearSelectedButton = document.getElementById("clearSelectedChapterGroupsButton");
+        if (clearSelectedButton != null) {
+            clearSelectedButton.disabled = visibleMarkedCount === 0;
+            clearSelectedButton.textContent = visibleMarkedCount === 0
+                ? "Deselect all"
+                : `Deselect all (${visibleMarkedCount})`;
+        }
         let downloadMarkedButton = document.getElementById("downloadMarkedChapterGroupsButton");
         if (downloadMarkedButton != null) {
             downloadMarkedButton.disabled = visibleMarkedCount === 0;
@@ -1849,5 +2121,6 @@ ChapterUrlsUI.TooltipForSate = [
     UIText.Chapter.tooltipChapterPreviouslyDownloaded
 ];
 
+ChapterUrlsUI.RANGE_SELECT_BUFFER_RESET_MS = 900;
 ChapterUrlsUI.lastSelectedRow = null;
 ChapterUrlsUI.ConsecutiveRowClicks = 0;

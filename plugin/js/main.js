@@ -26,7 +26,7 @@ var main = (function() {
     let referenceGroupingSourceSequence = 0;
     let referenceGroupingAutoAnalyzeTimer = null;
     let referenceGroupingAnalysisSequence = 0;
-    let progressActionState = { isBusy: false, actionMode: "pack" };
+    let progressActionState = { isBusy: false, actionMode: "pack", requestedStopReason: null };
     let storyDownloadSession = null;
     let reliableReferenceSites = [
         "webnovel.com",
@@ -1097,6 +1097,7 @@ var main = (function() {
 
         if (progressActionState.isBusy) {
             let actionMode = progressActionState.actionMode ?? "pack";
+            let isCancelPending = progressActionState.requestedStopReason === "cancel";
             let statusLabel = progressStatusLabel(actionMode, "fetching");
             if (actionMode === "library") {
                 setProgressButtonState(packButton, {
@@ -1107,16 +1108,20 @@ var main = (function() {
                 });
                 setProgressButtonState(addButton, {
                     hidden: false,
-                    disabled: false,
-                    text: cancelActionLabel(),
-                    title: "Stop the current download run."
+                    disabled: isCancelPending,
+                    text: isCancelPending ? cancellingActionLabel() : cancelActionLabel(),
+                    title: isCancelPending
+                        ? "The current batch download is being cancelled."
+                        : "Stop the current download run."
                 });
             } else {
                 setProgressButtonState(packButton, {
                     hidden: false,
-                    disabled: false,
-                    text: cancelActionLabel(),
-                    title: "Stop the current download run."
+                    disabled: isCancelPending,
+                    text: isCancelPending ? cancellingActionLabel() : cancelActionLabel(),
+                    title: isCancelPending
+                        ? "The current batch download is being cancelled."
+                        : "Stop the current download run."
                 });
                 setProgressButtonState(addButton, {
                     hidden: false,
@@ -1336,6 +1341,54 @@ var main = (function() {
         parser?.imageCollector?.setCoverImageUrl?.(CoverImageUI.getCoverImageUrl());
     }
 
+    function collectUniquePages(...pageCollections) {
+        let uniquePages = [];
+        let seenPages = new WeakSet();
+        let seenSourceUrls = new Set();
+
+        for (let pages of pageCollections) {
+            if (!Array.isArray(pages)) {
+                continue;
+            }
+            for (let page of pages) {
+                if ((page == null) || (typeof page !== "object")) {
+                    continue;
+                }
+                if (seenPages.has(page)) {
+                    continue;
+                }
+                let sourceUrl = page.sourceUrl ?? null;
+                if ((sourceUrl != null) && seenSourceUrls.has(sourceUrl)) {
+                    continue;
+                }
+                seenPages.add(page);
+                if (sourceUrl != null) {
+                    seenSourceUrls.add(sourceUrl);
+                }
+                uniquePages.push(page);
+            }
+        }
+
+        return uniquePages;
+    }
+
+    function resetDownloadExecutionState(actionMode = "pack", pagesToClear = []) {
+        clearFetchedChapterData(collectUniquePages(pagesToClear));
+        storyDownloadSession = null;
+        window.workInProgress = false;
+        main.getPackEpubButton().disabled = false;
+        ["downloadPacksButton", "downloadMarkedChapterGroupsButton", "downloadAllChapterGroupsButton"]
+            .forEach((elementId) => {
+                let button = document.getElementById(elementId);
+                if (button != null) {
+                    button.disabled = false;
+                }
+            });
+        util.sleepController = new AbortController();
+        setProgressActionBusy(false, actionMode);
+        updateDownloadFormatUi();
+    }
+
     function createStoryDownloadSession(options) {
         let session = {
             status: "idle",
@@ -1380,10 +1433,11 @@ var main = (function() {
         if (!hasPausedStoryDownloadSession()) {
             return;
         }
-        clearFetchedChapterData(getStoryDownloadPages(storyDownloadSession));
-        storyDownloadSession = null;
-        resetProgressDisplay();
-        updateDownloadFormatUi();
+        let pausedSession = storyDownloadSession;
+        resetDownloadExecutionState(
+            pausedSession?.actionMode ?? "pack",
+            getStoryDownloadPages(pausedSession)
+        );
     }
 
     function requestStoryDownloadStop(stopReason) {
@@ -1419,17 +1473,16 @@ var main = (function() {
         if (!hasCancelableBusyDownloadOperation()) {
             return;
         }
-        let pauseButton = document.getElementById("LibPauseToLibrary");
-        if (pauseButton != null) {
-            pauseButton.disabled = true;
-        }
+        progressActionState.requestedStopReason = "cancel";
+        syncProgressActionButtons();
         util.sleepController.abort();
     }
 
     function setProgressActionBusy(isBusy, actionMode = "pack") {
         progressActionState = {
             isBusy: isBusy,
-            actionMode: actionMode
+            actionMode: actionMode,
+            requestedStopReason: null
         };
         if (!isBusy && !hasRunningStoryDownloadSession()) {
             resetProgressDisplay();
@@ -1456,6 +1509,7 @@ var main = (function() {
 
     async function downloadBatches(chapterBatches, alwaysAddSuffix) {
         ensureSleepControllerReady();
+        let pagesInBatches = collectUniquePages(...chapterBatches);
         if (document.getElementById("noAdditionalMetadataCheckbox").checked == true) {
             setUiFieldToValue("subjectInput", "");
             setUiFieldToValue("descriptionInput", "");
@@ -1478,6 +1532,7 @@ var main = (function() {
 
         try {
             for (let batchIndex = 0; batchIndex < chapterBatches.length; ++batchIndex) {
+                throwIfDownloadStopped();
                 let batch = chapterBatches[batchIndex];
                 let firstChapterIndex = chapterOrder.get(batch[0].sourceUrl);
                 let lastChapterIndex = chapterOrder.get(batch[batch.length - 1].sourceUrl);
@@ -1497,14 +1552,11 @@ var main = (function() {
                 await withTemporaryChapterSelection(batch, async () => {
                     parser.onStartCollecting();
                     await parser.fetchContent();
-                    if (shouldStopCurrentDownload()) {
-                        return;
-                    }
+                    throwIfDownloadStopped();
                     let content = await buildDownloadContent(metaInfo);
-                    if (shouldStopCurrentDownload()) {
-                        return;
-                    }
+                    throwIfDownloadStopped();
                     await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                    throwIfDownloadStopped();
                 });
                 if (shouldStopCurrentDownload()) {
                     return;
@@ -1519,10 +1571,7 @@ var main = (function() {
                 ErrorLog.showErrorMessage(err);
             }
         } finally {
-            setBatchUiBusy(false, "pack");
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-            }
+            resetDownloadExecutionState("pack", pagesInBatches);
         }
     }
 
@@ -1580,16 +1629,14 @@ var main = (function() {
                 await withTemporaryChapterSelection(pages, async () => {
                     parser.onStartCollecting();
                     await parser.fetchContent();
-                    if (shouldStopCurrentDownload()) {
-                        return;
-                    }
+                    throwIfDownloadStopped();
                     let content = await buildDownloadContent(metaInfo);
-                    if (shouldStopCurrentDownload()) {
-                        return;
-                    }
+                    throwIfDownloadStopped();
                     await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                    throwIfDownloadStopped();
                 });
             });
+            throwIfDownloadStopped();
 
             parser.updateReadingList();
             ErrorLog.showLogToUser();
@@ -1599,10 +1646,7 @@ var main = (function() {
                 ErrorLog.showErrorMessage(err);
             }
         } finally {
-            setBatchUiBusy(false, "pack");
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-            }
+            resetDownloadExecutionState("pack", pages);
         }
     }
 
@@ -1624,6 +1668,7 @@ var main = (function() {
             .filter(group => (visibleGroupIdSet.size === 0) || visibleGroupIdSet.has(group.id))
             .map(group => ({ group: group, pages: getDownloadablePagesForGroup(group) }))
             .filter(entry => 0 < entry.pages.length);
+        let pagesInGroups = collectUniquePages(...groups.map(entry => entry.pages));
 
         if (groups.length === 0) {
             ErrorLog.showErrorMessage("No downloadable chapter groups found.");
@@ -1645,6 +1690,7 @@ var main = (function() {
 
         try {
             for (let entry of groups) {
+                throwIfDownloadStopped();
                 let group = entry.group;
                 let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
                 let fileName = buildDownloadFileName({
@@ -1662,14 +1708,11 @@ var main = (function() {
                     await withTemporaryChapterSelection(entry.pages, async () => {
                         parser.onStartCollecting();
                         await parser.fetchContent();
-                        if (shouldStopCurrentDownload()) {
-                            return;
-                        }
+                        throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
-                        if (shouldStopCurrentDownload()) {
-                            return;
-                        }
+                        throwIfDownloadStopped();
                         await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                        throwIfDownloadStopped();
                     });
                 });
                 if (shouldStopCurrentDownload()) {
@@ -1685,10 +1728,7 @@ var main = (function() {
                 ErrorLog.showErrorMessage(err);
             }
         } finally {
-            setBatchUiBusy(false, "pack");
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-            }
+            resetDownloadExecutionState("pack", pagesInGroups);
         }
     }
 
@@ -1708,6 +1748,7 @@ var main = (function() {
             .filter(group => markedGroupIdSet.has(group.id))
             .map(group => ({ group: group, pages: getDownloadablePagesForGroup(group) }))
             .filter(entry => 0 < entry.pages.length);
+        let pagesInGroups = collectUniquePages(...groups.map(entry => entry.pages));
 
         if (groups.length === 0) {
             ErrorLog.showErrorMessage("No selected chapter groups found.");
@@ -1729,6 +1770,7 @@ var main = (function() {
 
         try {
             for (let entry of groups) {
+                throwIfDownloadStopped();
                 let group = entry.group;
                 let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
                 let fileName = buildDownloadFileName({
@@ -1746,14 +1788,11 @@ var main = (function() {
                     await withTemporaryChapterSelection(entry.pages, async () => {
                         parser.onStartCollecting();
                         await parser.fetchContent();
-                        if (shouldStopCurrentDownload()) {
-                            return;
-                        }
+                        throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
-                        if (shouldStopCurrentDownload()) {
-                            return;
-                        }
+                        throwIfDownloadStopped();
                         await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+                        throwIfDownloadStopped();
                     });
                 });
                 if (shouldStopCurrentDownload()) {
@@ -1769,10 +1808,7 @@ var main = (function() {
                 ErrorLog.showErrorMessage(err);
             }
         } finally {
-            setBatchUiBusy(false, "pack");
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController;
-            }
+            resetDownloadExecutionState("pack", pagesInGroups);
         }
     }
 
@@ -1898,27 +1934,10 @@ var main = (function() {
                 stopReason = session.requestedStopReason ?? "cancel";
                 return;
             }
-            storyDownloadSession = null;
-            clearFetchedChapterData(pages);
             ErrorLog.showErrorMessage(err);
         } finally {
-            window.workInProgress = false;
-            main.getPackEpubButton().disabled = false;
-            if (stopReason === "cancel") {
-                clearFetchedChapterData(pages);
-                storyDownloadSession = null;
-                ProgressBar.setMax(1);
-                ProgressBar.setValue(0);
-            } else if (storyDownloadSession === session) {
-                storyDownloadSession.phase = "complete";
-                storyDownloadSession = null;
-            }
             session.requestedStopReason = null;
-            setProgressActionBusy(false, session.actionMode);
-            if (util.sleepController.signal.aborted) {
-                util.sleepController = new AbortController();
-            }
-            updateDownloadFormatUi();
+            resetDownloadExecutionState(session.actionMode, pages);
         }
     }
 
@@ -2025,7 +2044,10 @@ var main = (function() {
     function packEpub(metaInfo, itemSupplier = parser.epubItemSupplier()) {
         let epubVersion = epubVersionFromPreferences();
         let epub = new EpubPacker(metaInfo, epubVersion);
-        return epub.assemble(itemSupplier);
+        return epub.assemble(itemSupplier, {
+            maybeYield: yieldDownloadWork,
+            throwIfCancelled: throwIfDownloadStopped
+        });
     }
 
     function coverImageDataUrl(itemSupplier) {
@@ -2036,12 +2058,83 @@ var main = (function() {
         return `data:${coverImageInfo.mediaType};base64,${coverImageInfo.getBase64(0)}`;
     }
 
-    function sanitizePdfText(text) {
+    const pdfWinAnsiSpecialBytes = new Map([
+        [0x20AC, 0x80],
+        [0x201A, 0x82],
+        [0x0192, 0x83],
+        [0x201E, 0x84],
+        [0x2026, 0x85],
+        [0x2020, 0x86],
+        [0x2021, 0x87],
+        [0x02C6, 0x88],
+        [0x2030, 0x89],
+        [0x0160, 0x8A],
+        [0x2039, 0x8B],
+        [0x0152, 0x8C],
+        [0x017D, 0x8E],
+        [0x2018, 0x91],
+        [0x2019, 0x92],
+        [0x201C, 0x93],
+        [0x201D, 0x94],
+        [0x2022, 0x95],
+        [0x2013, 0x96],
+        [0x2014, 0x97],
+        [0x02DC, 0x98],
+        [0x2122, 0x99],
+        [0x0161, 0x9A],
+        [0x203A, 0x9B],
+        [0x0153, 0x9C],
+        [0x017E, 0x9E],
+        [0x0178, 0x9F]
+    ]);
+
+    function yieldDownloadWork() {
+        return new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    function throwIfDownloadStopped() {
+        if (shouldStopCurrentDownload()) {
+            throw new DOMException("The user aborted a request.", "AbortError");
+        }
+    }
+
+    async function maybeYieldDuringDownloadWork(index, interval = 3) {
+        if ((index % interval) !== 0) {
+            return;
+        }
+        await yieldDownloadWork();
+        throwIfDownloadStopped();
+    }
+
+    function normalizePdfText(text) {
         return (text ?? "")
-            .replace(/\\/g, "\\\\")
-            .replace(/\(/g, "\\(")
-            .replace(/\)/g, "\\)")
-            .replace(/[^\u0020-\u00FF]/g, "?");
+            .replace(/\u00A0/g, " ")
+            .replace(/\u202F/g, " ")
+            .replace(/\u00AD/g, "")
+            .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+            .replace(/[\u201C\u201D\u201E\u2033]/g, "\"")
+            .replace(/[\u2013\u2014\u2212]/g, "-")
+            .replace(/\u2026/g, "...")
+            .replace(/\t/g, "    ");
+    }
+
+    function encodePdfTextAsHex(text) {
+        let bytes = [];
+        for (let character of normalizePdfText(text)) {
+            let codePoint = character.codePointAt(0);
+            if ((codePoint >= 0x20) && (codePoint <= 0x7E)) {
+                bytes.push(codePoint);
+            } else if ((codePoint >= 0xA0) && (codePoint <= 0xFF)) {
+                bytes.push(codePoint);
+            } else if (pdfWinAnsiSpecialBytes.has(codePoint)) {
+                bytes.push(pdfWinAnsiSpecialBytes.get(codePoint));
+            } else {
+                bytes.push(0x3F);
+            }
+        }
+        return bytes
+            .map((value) => value.toString(16).padStart(2, "0").toUpperCase())
+            .join("");
     }
 
     function wrapPdfParagraph(text, maxLength = 92) {
@@ -2077,7 +2170,7 @@ var main = (function() {
         return lines.length === 0 ? [""] : lines;
     }
 
-    function buildPdfLines(metaInfo, itemSupplier) {
+    async function buildPdfLines(metaInfo, itemSupplier) {
         let lines = [];
         [metaInfo.title, metaInfo.author ? `Author: ${metaInfo.author}` : "", metaInfo.language ? `Language: ${metaInfo.language}` : ""]
             .filter(value => !util.isNullOrEmpty(value))
@@ -2086,7 +2179,10 @@ var main = (function() {
             });
         lines.push("");
 
-        itemSupplier.spineItems().forEach((item, index) => {
+        let spineItems = itemSupplier.spineItems();
+        for (let index = 0; index < spineItems.length; ++index) {
+            await maybeYieldDuringDownloadWork(index, 2);
+            let item = spineItems[index];
             let chapterHeading = item.chapterTitle ?? `Chapter ${index + 1}`;
             lines.push(...wrapPdfParagraph(chapterHeading, 84));
             lines.push("");
@@ -2097,7 +2193,7 @@ var main = (function() {
                     lines.push("");
                 });
             lines.push("");
-        });
+        }
 
         while ((0 < lines.length) && (lines.at(-1) === "")) {
             lines.pop();
@@ -2105,7 +2201,7 @@ var main = (function() {
         return lines;
     }
 
-    function createSimplePdfBlob(lines) {
+    async function createSimplePdfBlob(lines) {
         let pageWidth = 612;
         let pageHeight = 792;
         let marginLeft = 48;
@@ -2127,9 +2223,11 @@ var main = (function() {
         let pageObjectIds = [];
 
         objects.set(1, "<< /Type /Catalog /Pages 2 0 R >>");
-        objects.set(fontObjectId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+        objects.set(fontObjectId, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
 
-        pages.forEach((pageLines) => {
+        for (let pageIndex = 0; pageIndex < pages.length; ++pageIndex) {
+            await maybeYieldDuringDownloadWork(pageIndex, 4);
+            let pageLines = pages[pageIndex];
             let contentObjectId = nextObjectId++;
             let pageObjectId = nextObjectId++;
             pageObjectIds.push(pageObjectId);
@@ -2141,7 +2239,7 @@ var main = (function() {
                 `${lineHeight} TL`
             ];
             pageLines.forEach((line, lineIndex) => {
-                operators.push(`(${sanitizePdfText(line)}) Tj`);
+                operators.push(`<${encodePdfTextAsHex(line)}> Tj`);
                 if (lineIndex !== pageLines.length - 1) {
                     operators.push("T*");
                 }
@@ -2157,7 +2255,7 @@ var main = (function() {
                 + `/Resources << /Font << /F1 ${fontObjectId} 0 R >> >> `
                 + `/Contents ${contentObjectId} 0 R >>`
             );
-        });
+        }
 
         objects.set(2, `<< /Type /Pages /Count ${pageObjectIds.length} /Kids [${pageObjectIds.map(id => `${id} 0 R`).join(" ")}] >>`);
 
@@ -2184,16 +2282,13 @@ var main = (function() {
             `trailer\n<< /Size ${nextObjectId} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
         );
 
-        let bytes = Uint8Array.from(
-            pdfChunks.join("")
-                .split("")
-                .map(character => character.charCodeAt(0) & 0xFF)
-        );
+        throwIfDownloadStopped();
+        let bytes = new TextEncoder().encode(pdfChunks.join(""));
         return new Blob([bytes], { type: "application/pdf" });
     }
 
-    function buildPdfExport(metaInfo, itemSupplier) {
-        return createSimplePdfBlob(buildPdfLines(metaInfo, itemSupplier));
+    async function buildPdfExport(metaInfo, itemSupplier) {
+        return createSimplePdfBlob(await buildPdfLines(metaInfo, itemSupplier));
     }
 
     function buildHtmlExport(metaInfo, itemSupplier) {
@@ -2267,7 +2362,7 @@ var main = (function() {
             .join("\n\n");
     }
 
-    function buildTextExport(metaInfo, itemSupplier) {
+    async function buildTextExport(metaInfo, itemSupplier) {
         let blocks = [];
         if (!util.isNullOrEmpty(metaInfo.title)) {
             blocks.push(metaInfo.title);
@@ -2279,7 +2374,10 @@ var main = (function() {
             blocks.push(`Language: ${metaInfo.language}`);
         }
 
-        itemSupplier.spineItems().forEach((item) => {
+        let spineItems = itemSupplier.spineItems();
+        for (let index = 0; index < spineItems.length; ++index) {
+            await maybeYieldDuringDownloadWork(index, 3);
+            let item = spineItems[index];
             let chapterTitle = item.chapterTitle ?? "";
             let chapterText = nodesToText(item.nodes);
             let chapterBlock = [chapterTitle, chapterText]
@@ -2288,23 +2386,23 @@ var main = (function() {
             if (!util.isNullOrEmpty(chapterBlock)) {
                 blocks.push(chapterBlock);
             }
-        });
+        }
 
         return new Blob([blocks.join("\n\n\n")], { type: "text/plain;charset=utf-8" });
     }
 
-    function buildDownloadContent(metaInfo) {
+    async function buildDownloadContent(metaInfo) {
         let format = getSelectedDownloadFormat();
         let itemSupplier = parser.epubItemSupplier();
         switch (format) {
             case "html":
-                return Promise.resolve(buildHtmlExport(metaInfo, itemSupplier));
+                return buildHtmlExport(metaInfo, itemSupplier);
             case "pdf":
-                return Promise.resolve(buildPdfExport(metaInfo, itemSupplier));
+                return buildPdfExport(metaInfo, itemSupplier);
             case "txt":
-                return Promise.resolve(buildTextExport(metaInfo, itemSupplier));
+                return buildTextExport(metaInfo, itemSupplier);
             case "mobi":
-                return Promise.reject(new Error("MOBI export requires an external converter and is not available in the extension runtime yet."));
+                throw new Error("MOBI export requires an external converter and is not available in the extension runtime yet.");
             default:
                 return packEpub(metaInfo, itemSupplier);
         }
@@ -2565,7 +2663,7 @@ var main = (function() {
         initialWebPage = null;
         parser = null;
         storyDownloadSession = null;
-        progressActionState = { isBusy: false, actionMode: "pack" };
+        progressActionState = { isBusy: false, actionMode: "pack", requestedStopReason: null };
         clearReferenceGroupingSources();
         let metaInfo = new EpubMetaInfo();
         metaInfo.uuid = "";

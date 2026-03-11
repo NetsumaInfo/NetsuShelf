@@ -45,6 +45,36 @@ QUnit.test("setPagesToFetch", function (assert) {
     ]);
 });
 
+QUnit.test("setReferenceChapterGroups", function (assert) {
+    let parser = new Parser();
+    let urlsToFetch = [
+        { sourceUrl: "https://target.example/chapter-1", title: "Chapter 1" },
+        { sourceUrl: "https://target.example/chapter-2", title: "Chapter 2" },
+        { sourceUrl: "https://target.example/chapter-3", title: "Chapter 3" }
+    ];
+    parser.setPagesToFetch(urlsToFetch);
+
+    parser.setReferenceChapterGroups([
+        {
+            key: "volume:1",
+            type: "volume",
+            index: "1",
+            label: "Volume 1",
+            title: "Arrival",
+            startChapter: 1,
+            endChapter: 2
+        }
+    ], { label: "Reference Story" });
+
+    assert.equal(parser.getReferenceChapterGroups().length, 1);
+    assert.equal(parser.getChapterGroups()[0].displayTitle, "Volume 1 - Arrival");
+    assert.equal(parser.getReferenceChapterGroupSource().label, "Reference Story");
+
+    parser.clearReferenceChapterGroups();
+    assert.equal(parser.getReferenceChapterGroups().length, 0);
+    assert.equal(parser.getChapterGroups()[0].displayTitle, "Chapters 1-3");
+});
+
 function makeEpubItemsToTestResolvingHyperlinks() {
     let epubItems = [];
     let dom = new DOMParser().parseFromString(

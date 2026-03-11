@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WebToEpub",
+  "name": "NetsuShelf",
   "version": "1.0.12.2",
   "default_locale": "en",
   "icons": {
@@ -20,7 +20,7 @@
   ],
   "action": {
     "browser_style": false,
-    "default_title": "",
+    "default_title": "NetsuShelf",
     "default_icon": "book128.png",
     "default_popup": "popup.html"
   },

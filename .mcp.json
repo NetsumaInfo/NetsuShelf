@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "react-grab-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@react-grab/mcp",
+        "--stdio"
+      ]
+    }
+  }
+}

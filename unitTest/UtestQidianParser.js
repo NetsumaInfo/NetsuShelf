@@ -31,6 +31,25 @@ QUnit.test("extractTitle", function (assert) {
     assert.equal(actual, "King of Gods");
 });
 
+QUnit.test("getChapterUrls_volumeItemsPreserveVolumeMetadata", function (assert) {
+    let done = assert.async();
+    let dom = new DOMParser().parseFromString(QidianCatalogSample, "text/html");
+    let checkbox = dom.getElementById("removeChapterNumberCheckbox");
+    document.body.appendChild(checkbox);
+
+    new QidianParser().getChapterUrls(dom).then(function(actual) {
+        assert.equal(actual.length, 3);
+        assert.equal(actual[0].groupLabel, "Volume 1");
+        assert.equal(actual[0].groupTitle, "Ashes of the Past");
+        assert.equal(actual[0].newArc, "Volume 1 - Ashes of the Past");
+        assert.equal(actual[1].groupKey, "volume:1");
+        assert.equal(actual[2].groupKey, "volume:2");
+        assert.equal(actual[2].newArc, "Volume 2");
+        checkbox.remove();
+        done();
+    });
+});
+
 let QidianChatperLinkSample =
 `<!DOCTYPE html>
 <html lang="en-US" class="dark-skin">
@@ -65,4 +84,45 @@ let QidianChatperLinkSample =
 <ol>
 </body>
 </html>
-`
+`;
+
+let QidianCatalogSample =
+`<!DOCTYPE html>
+<html lang="en-US" class="dark-skin">
+<head>
+    <title>King of Gods - Catalog</title>
+    <base href="https://www.webnovel.com/book/9017100806001205/catalog" />
+</head>
+<body>
+<input id="removeChapterNumberCheckbox" type="checkbox">
+<div class="volume-item">
+    <h4>Volume 1: Ashes of the Past</h4>
+    <ol>
+        <li>
+            <a href="https://www.webnovel.com/book/9017100806001205/1/King-of-Gods/Young-Zhao-Feng-">
+                <i>1</i>
+                <strong>Young Zhao Feng</strong>
+            </a>
+        </li>
+        <li>
+            <a href="https://www.webnovel.com/book/9017100806001205/2/King-of-Gods/New-Horizon-">
+                <i>2</i>
+                <strong>New Horizon</strong>
+            </a>
+        </li>
+    </ol>
+</div>
+<div class="volume-item">
+    <h4>Volume 2</h4>
+    <ol>
+        <li>
+            <a href="https://www.webnovel.com/book/9017100806001205/3/King-of-Gods/Return-">
+                <i>3</i>
+                <strong>Return</strong>
+            </a>
+        </li>
+    </ol>
+</div>
+</body>
+</html>
+`;

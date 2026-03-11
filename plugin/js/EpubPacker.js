@@ -36,17 +36,27 @@ class EpubPacker {
         return "cover";
     }
 
-    assemble(epubItemSupplier) {
+    async assemble(epubItemSupplier, options = {}) {
+        let maybeYield = options.maybeYield ?? (() => Promise.resolve());
+        let throwIfCancelled = options.throwIfCancelled ?? (() => { });
         let zipFileWriter = new zip.BlobWriter("application/epub+zip");
         let zipWriter = new zip.ZipWriter(zipFileWriter,{useWebWorkers: false,compressionMethod: 8, extendedTimestamp: false});
-        this.addRequiredFiles(zipWriter);
-        zipWriter.add("OEBPS/content.opf", new zip.TextReader(this.buildContentOpf(epubItemSupplier)));
-        zipWriter.add("OEBPS/toc.ncx", new zip.TextReader(this.buildTableOfContents(epubItemSupplier)));
+        await this.addRequiredFiles(zipWriter);
+        throwIfCancelled();
+        await maybeYield();
+        await zipWriter.add("OEBPS/content.opf", new zip.TextReader(this.buildContentOpf(epubItemSupplier)));
+        throwIfCancelled();
+        await maybeYield();
+        await zipWriter.add("OEBPS/toc.ncx", new zip.TextReader(this.buildTableOfContents(epubItemSupplier)));
         if (this.version === EpubPacker.EPUB_VERSION_3) {
-            zipWriter.add("OEBPS/toc.xhtml", new zip.TextReader(this.buildNavigationDocument(epubItemSupplier)));
+            throwIfCancelled();
+            await maybeYield();
+            await zipWriter.add("OEBPS/toc.xhtml", new zip.TextReader(this.buildNavigationDocument(epubItemSupplier)));
         }
-        this.packContentFiles(zipWriter, epubItemSupplier);
-        zipWriter.add(util.styleSheetFileName(), new zip.TextReader(this.metaInfo.styleSheet));
+        await this.packContentFiles(zipWriter, epubItemSupplier, { maybeYield, throwIfCancelled });
+        throwIfCancelled();
+        await maybeYield();
+        await zipWriter.add(util.styleSheetFileName(), new zip.TextReader(this.metaInfo.styleSheet));
         return zipWriter.close();
     }
 
@@ -56,9 +66,9 @@ class EpubPacker {
     }
 
     // every EPUB must have a mimetype and a container.xml file
-    addRequiredFiles(zipFile) {
-        zipFile.add("mimetype",  new zip.TextReader("application/epub+zip"),{compressionMethod: 0});
-        zipFile.add("META-INF/container.xml",
+    async addRequiredFiles(zipFile) {
+        await zipFile.add("mimetype",  new zip.TextReader("application/epub+zip"),{compressionMethod: 0});
+        await zipFile.add("META-INF/container.xml",
             new zip.TextReader("<?xml version=\"1.0\"?>" +
             "<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">" +
                 "<rootfiles>" +
@@ -340,13 +350,21 @@ class EpubPacker {
         return navPoint;
     }
 
-    packContentFiles(zipWriter, epubItemSupplier) {
-        for (let file of epubItemSupplier.files()) {
-            file.packInEpub(zipWriter, this.emptyDocFactory, this.contentValidator);
+    async packContentFiles(zipWriter, epubItemSupplier, options = {}) {
+        let maybeYield = options.maybeYield ?? (() => Promise.resolve());
+        let throwIfCancelled = options.throwIfCancelled ?? (() => { });
+        let files = epubItemSupplier.files();
+        for (let index = 0; index < files.length; ++index) {
+            throwIfCancelled();
+            await maybeYield(index);
+            let file = files[index];
+            await file.packInEpub(zipWriter, this.emptyDocFactory, this.contentValidator);
         }
         if (epubItemSupplier.hasCoverImageFile()) {
+            throwIfCancelled();
+            await maybeYield(files.length);
             let fileContent = epubItemSupplier.makeCoverImageXhtmlFile(this.emptyDocFactory, "Cover");
-            zipWriter.add(EpubPacker.coverImageXhtmlHref(), new zip.TextReader(fileContent));
+            await zipWriter.add(EpubPacker.coverImageXhtmlHref(), new zip.TextReader(fileContent));
         }
     }
 

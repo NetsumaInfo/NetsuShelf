@@ -666,6 +666,465 @@ const util = (function() {
         };
     }
 
+    function extractChapterNumberFromText(text) {
+        if (isNullOrEmpty(text)) {
+            return null;
+        }
+        let chapterMatchers = [
+            /(?:chapter|chapitre|ch|ep|episode)\s*[#:–—\-\s]*?(\d{1,5})/i,
+            /(?:chapter|chapitre|ch|ep|episode)[-_](\d{1,5})/i,
+            /\/(?:chapter|chapitre|ch)-?(\d{1,5})(?:[/?#]|-|$)/i,
+            /^#?(\d{1,5})(?:\b|[:.-])/
+        ];
+        for (let matcher of chapterMatchers) {
+            let match = text.match(matcher);
+            if ((match != null) && (0 < match.length)) {
+                let rawNumber = match[1] ?? match[0];
+                let parsed = parseInt(rawNumber, 10);
+                if (Number.isFinite(parsed)) {
+                    return parsed;
+                }
+            }
+        }
+        return null;
+    }
+
+    function extractChapterNumber(chapter) {
+        if (chapter == null) {
+            return null;
+        }
+        return extractChapterNumberFromText(chapter.title)
+            ?? extractChapterNumberFromText(chapter.sourceUrl);
+    }
+
+    function normalizeChapterGroupType(groupType) {
+        if (isNullOrEmpty(groupType)) {
+            return null;
+        }
+        let normalized = groupType.toString().trim().toLowerCase();
+        let aliases = new Map([
+            ["vol", "volume"],
+            ["volume", "volume"],
+            ["v", "volume"],
+            ["book", "book"],
+            ["bk", "book"],
+            ["arc", "arc"],
+            ["part", "part"],
+            ["season", "season"],
+            ["section", "section"],
+            ["tome", "tome"],
+            ["tom", "tome"],
+            ["livre", "book"]
+        ]);
+        return aliases.get(normalized) ?? normalized;
+    }
+
+    function chapterGroupTypeLabel(groupType) {
+        let normalized = normalizeChapterGroupType(groupType);
+        if (normalized == null) {
+            return null;
+        }
+        let labels = new Map([
+            ["volume", "Volume"],
+            ["book", "Book"],
+            ["arc", "Arc"],
+            ["part", "Part"],
+            ["season", "Season"],
+            ["section", "Section"],
+            ["tome", "Tome"],
+            ["range", "Chapters"]
+        ]);
+        return labels.get(normalized) ?? normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    }
+
+    function normalizeChapterGroupIndex(index) {
+        if (index == null) {
+            return null;
+        }
+        let normalized = index.toString().trim();
+        return normalized === "" ? null : normalized.toUpperCase();
+    }
+
+    function makeChapterGroupDisplayTitle(group) {
+        if (group == null) {
+            return "";
+        }
+
+        let typeLabel = chapterGroupTypeLabel(group.type);
+        let indexLabel = normalizeChapterGroupIndex(group.index);
+        let baseLabel = null;
+        if (!isNullOrEmpty(group.label)) {
+            baseLabel = group.label.trim();
+        } else if ((typeLabel != null) && (indexLabel != null)) {
+            baseLabel = `${typeLabel} ${indexLabel}`;
+        } else if (typeLabel != null) {
+            baseLabel = typeLabel;
+        } else if (!isNullOrEmpty(group.title)) {
+            baseLabel = group.title.trim();
+        }
+
+        if (!isNullOrEmpty(group.title)) {
+            let title = group.title.trim();
+            if (isNullOrEmpty(baseLabel)) {
+                return title;
+            }
+            if (baseLabel.toLowerCase() === title.toLowerCase()) {
+                return title;
+            }
+            return `${baseLabel} - ${title}`;
+        }
+
+        if (!isNullOrEmpty(baseLabel)) {
+            return baseLabel;
+        }
+
+        let rangeLabel = group.rangeLabel ?? "";
+        return rangeLabel === "" ? "Selected chapters" : `Chapters ${rangeLabel}`;
+    }
+
+    function createChapterGroupKey(type, index, label, title) {
+        let normalizedType = normalizeChapterGroupType(type) ?? "group";
+        let normalizedIndex = normalizeChapterGroupIndex(index);
+        if (normalizedIndex != null) {
+            return `${normalizedType}:${normalizedIndex}`;
+        }
+        let candidates = [label, title]
+            .filter(value => !isNullOrEmpty(value))
+            .map(value => value.trim().toLowerCase());
+        if (0 < candidates.length) {
+            return `${normalizedType}:${candidates[0]}`;
+        }
+        return `${normalizedType}:default`;
+    }
+
+    function isValidRomanNumeral(value) {
+        if (isNullOrEmpty(value)) {
+            return false;
+        }
+        return /^(?=[MDCLXVI])[MDCLXVI]+$/i.test(value)
+            && /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/i.test(value);
+    }
+
+    function normalizeDetectedGroupIndex(value) {
+        let normalized = normalizeChapterGroupIndex(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+            return normalized;
+        }
+        return isValidRomanNumeral(normalized) ? normalized : null;
+    }
+
+    function inferGroupMarkerFromText(text, sourceType = "title") {
+        if (isNullOrEmpty(text)) {
+            return null;
+        }
+        let matchers = sourceType === "url"
+            ? [
+                { type: "volume", regex: /(?:^|[/_-])vol(?:ume)?(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "volume", regex: /(?:^|[/_-])v(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "book", regex: /(?:^|[/_-])(?:book|bk)(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "arc", regex: /(?:^|[/_-])arc(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "part", regex: /(?:^|[/_-])part(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "season", regex: /(?:^|[/_-])season(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
+                { type: "tome", regex: /(?:^|[/_-])(?:tome|tom)(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i }
+            ]
+            : [
+                { type: "volume", regex: /^\s*(?:[[<(]\s*)?vol(?:ume)?\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "volume", regex: /^\s*(?:[[<(]\s*)?v(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "book", regex: /^\s*(?:[[<(]\s*)?(?:book|bk)\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "arc", regex: /^\s*(?:[[<(]\s*)?arc\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "part", regex: /^\s*(?:[[<(]\s*)?part\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "season", regex: /^\s*(?:[[<(]\s*)?season\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
+                { type: "tome", regex: /^\s*(?:[[<(]\s*)?(?:tome|tom)\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i }
+            ];
+        for (let matcher of matchers) {
+            let match = text.match(matcher.regex);
+            if ((match != null) && (1 < match.length)) {
+                let index = normalizeDetectedGroupIndex(match[1]);
+                if (index == null) {
+                    continue;
+                }
+                let label = `${chapterGroupTypeLabel(matcher.type)} ${index}`;
+                return {
+                    type: matcher.type,
+                    index: index,
+                    label: label,
+                    title: null,
+                    key: createChapterGroupKey(matcher.type, index, label, null),
+                    source: "title_regex"
+                };
+            }
+        }
+        return null;
+    }
+
+    function shouldInferGroupFromChapterTitle(chapter) {
+        if (chapter == null) {
+            return false;
+        }
+        let title = chapter.title || "";
+        if (title.match(/^(?:chapter|chapitre|ch|ep|episode)\s*\d+/i)) {
+            return false;
+        }
+        return true;
+    }
+
+    function groupInfoFromChapter(chapter, source = "parser_metadata") {
+        if (chapter == null) {
+            return null;
+        }
+
+        let groupType = normalizeChapterGroupType(chapter.groupType);
+        let groupIndex = normalizeChapterGroupIndex(chapter.groupIndex);
+        let groupTitle = isNullOrEmpty(chapter.groupTitle) ? null : chapter.groupTitle.trim();
+        let groupLabel = isNullOrEmpty(chapter.groupLabel) ? null : chapter.groupLabel.trim();
+        let groupKey = isNullOrEmpty(chapter.groupKey)
+            ? null
+            : chapter.groupKey.trim().toLowerCase();
+
+        if ((groupType != null) || (groupIndex != null) || (groupTitle != null) || (groupLabel != null) || (groupKey != null)) {
+            let label = groupLabel;
+            if (isNullOrEmpty(label) && (groupType != null) && (groupIndex != null)) {
+                label = `${chapterGroupTypeLabel(groupType)} ${groupIndex}`;
+            }
+            return {
+                type: groupType,
+                index: groupIndex,
+                title: groupTitle,
+                label: label,
+                key: groupKey ?? createChapterGroupKey(groupType, groupIndex, label, groupTitle),
+                source: chapter.groupSource ?? source,
+                coverUrl: chapter.groupCoverUrl ?? chapter.coverUrl ?? null
+            };
+        }
+
+        if (!isNullOrEmpty(chapter.newArc)) {
+            let title = chapter.newArc.trim();
+            let inferred = inferGroupMarkerFromText(title, "title");
+            if (inferred != null) {
+                inferred.title = inferred.title ?? title;
+                inferred.label = inferred.label ?? title;
+                inferred.key = inferred.key ?? createChapterGroupKey(inferred.type, inferred.index, inferred.label, title);
+                inferred.source = "parser_arc";
+                return inferred;
+            }
+            return {
+                type: "arc",
+                index: null,
+                title: title,
+                label: title,
+                key: createChapterGroupKey("arc", null, title, title),
+                source: "parser_arc",
+                coverUrl: chapter.groupCoverUrl ?? chapter.coverUrl ?? null
+            };
+        }
+
+        let inferredFromTitle = shouldInferGroupFromChapterTitle(chapter)
+            ? inferGroupMarkerFromText(chapter.title, "title")
+            : null;
+        let inferredFromUrl = inferGroupMarkerFromText(chapter.sourceUrl, "url");
+        let inferredFromTitleOrUrl = inferredFromTitle ?? inferredFromUrl;
+        if (inferredFromTitleOrUrl != null) {
+            return inferredFromTitleOrUrl;
+        }
+
+        return null;
+    }
+
+    function finalizeChapterGroup(group) {
+        group.count = group.chapters.length;
+        group.startOrder = group.startOrder ?? 1;
+        group.endOrder = group.startOrder + group.count - 1;
+        let firstChapter = group.chapters[0];
+        let lastChapter = group.chapters[group.chapters.length - 1];
+        group.startChapter = extractChapterNumber(firstChapter) ?? group.startOrder;
+        group.endChapter = extractChapterNumber(lastChapter) ?? group.endOrder;
+        group.rangeLabel = `${group.startChapter}-${group.endChapter}`;
+        group.displayTitle = makeChapterGroupDisplayTitle(group);
+        group.fileLabel = safeForFileName(group.displayTitle, 120);
+        if (isStringWhiteSpace(group.fileLabel)) {
+            group.fileLabel = safeForFileName(`chapters_${group.rangeLabel}`, 120);
+        }
+    }
+
+    function isAbortError(error) {
+        return error?.name === "AbortError"
+            || error?.message === "The user aborted a request."
+            || error?.message === "signal is aborted without reason";
+    }
+
+    function buildChapterGroups(chapters) {
+        if (!Array.isArray(chapters) || (chapters.length === 0)) {
+            return [];
+        }
+
+        let groups = [];
+        let currentGroup = null;
+        let sequence = 0;
+        let startGroup = function(marker, chapter, order) {
+            let group = {
+                id: `group-${++sequence}`,
+                key: marker?.key ?? `range:${sequence}`,
+                type: marker?.type ?? "range",
+                index: marker?.index ?? null,
+                title: marker?.title ?? null,
+                label: marker?.label ?? null,
+                source: marker?.source ?? "manual_range",
+                coverUrl: marker?.coverUrl ?? null,
+                chapters: [],
+                startOrder: order
+            };
+            groups.push(group);
+            currentGroup = group;
+            if (chapter != null) {
+                chapter.detectedGroupId = group.id;
+            }
+            return group;
+        };
+
+        chapters.forEach((chapter, index) => {
+            let order = index + 1;
+            let marker = groupInfoFromChapter(chapter);
+            let shouldStartNewGroup = false;
+
+            if (marker != null) {
+                shouldStartNewGroup = (currentGroup == null) || (marker.key !== currentGroup.key);
+            } else if (currentGroup == null) {
+                shouldStartNewGroup = true;
+            }
+
+            if (shouldStartNewGroup) {
+                startGroup(marker, chapter, order);
+            }
+
+            if (currentGroup == null) {
+                startGroup(null, chapter, order);
+            }
+
+            if ((marker != null) && isNullOrEmpty(currentGroup.label) && !isNullOrEmpty(marker.label)) {
+                currentGroup.label = marker.label;
+            }
+            if ((marker != null) && isNullOrEmpty(currentGroup.title) && !isNullOrEmpty(marker.title)) {
+                currentGroup.title = marker.title;
+            }
+            if ((marker != null) && (currentGroup.index == null) && (marker.index != null)) {
+                currentGroup.index = marker.index;
+            }
+            if ((marker != null) && (currentGroup.type == null) && (marker.type != null)) {
+                currentGroup.type = marker.type;
+            }
+            if ((marker != null) && (currentGroup.source === "manual_range")) {
+                currentGroup.source = marker.source;
+            }
+            if ((marker != null) && isNullOrEmpty(currentGroup.coverUrl) && !isNullOrEmpty(marker.coverUrl)) {
+                currentGroup.coverUrl = marker.coverUrl;
+            }
+
+            chapter.detectedGroupId = currentGroup.id;
+            currentGroup.chapters.push(chapter);
+            currentGroup.endOrder = order;
+        });
+
+        groups.forEach(finalizeChapterGroup);
+        return groups;
+    }
+
+    function mapReferenceChapterGroupsToChapters(referenceGroups, chapters) {
+        if (!Array.isArray(referenceGroups) || !Array.isArray(chapters) ||
+            (referenceGroups.length === 0) || (chapters.length === 0)) {
+            return [];
+        }
+
+        let chaptersByUrl = new Map(chapters.map(chapter => [chapter.sourceUrl, chapter]));
+        let annotateChapter = (chapter, group, index) => {
+            let groupKey = isNullOrEmpty(group?.key)
+                ? `reference-group-${index + 1}`
+                : `reference:${group.key}`;
+            return {
+                sourceUrl: chapter.sourceUrl,
+                title: chapter.title,
+                isIncludeable: chapter.isIncludeable,
+                isSelectable: chapter.isSelectable,
+                groupType: group.type ?? null,
+                groupIndex: group.index ?? null,
+                groupTitle: group.title ?? null,
+                groupLabel: group.label ?? null,
+                groupCoverUrl: group.coverUrl ?? null,
+                groupKey: groupKey,
+                groupSource: "reference_site"
+            };
+        };
+
+        let annotateByChapterNumbers = () => {
+            let assignedUrls = new Set();
+            let annotatedChapters = [];
+            referenceGroups.forEach((group, index) => {
+                let startChapter = Number.isFinite(group?.startChapter) ? group.startChapter : null;
+                let endChapter = Number.isFinite(group?.endChapter) ? group.endChapter : null;
+                if ((startChapter == null) || (endChapter == null)) {
+                    return;
+                }
+
+                chapters.forEach((chapter) => {
+                    let chapterNumber = extractChapterNumber(chapter);
+                    if ((chapterNumber == null) || (chapterNumber < startChapter) || (endChapter < chapterNumber)) {
+                        return;
+                    }
+                    if (assignedUrls.has(chapter.sourceUrl)) {
+                        return;
+                    }
+                    assignedUrls.add(chapter.sourceUrl);
+                    annotatedChapters.push(annotateChapter(chapter, group, index));
+                });
+            });
+            return annotatedChapters;
+        };
+
+        let annotateSequentially = () => {
+            let annotatedChapters = [];
+            let chapterCursor = 0;
+            referenceGroups.forEach((group, index) => {
+                let groupCount = Number.isFinite(group?.count) ? group.count : null;
+                if ((groupCount == null) || (groupCount <= 0)) {
+                    return;
+                }
+
+                let slice = chapters.slice(chapterCursor, chapterCursor + groupCount);
+                chapterCursor += slice.length;
+                slice.forEach((chapter) => {
+                    annotatedChapters.push(annotateChapter(chapter, group, index));
+                });
+            });
+            return annotatedChapters;
+        };
+
+        let annotatedChapters = annotateByChapterNumbers();
+        let totalCountFromReference = referenceGroups
+            .map(group => Number.isFinite(group?.count) ? group.count : 0)
+            .reduce((sum, count) => sum + count, 0);
+        let needsSequentialFallback = (annotatedChapters.length === 0)
+            || ((annotatedChapters.length < Math.max(2, Math.floor(chapters.length * 0.55)))
+                && (0 < totalCountFromReference));
+
+        if (needsSequentialFallback) {
+            let sequentialAnnotatedChapters = annotateSequentially();
+            if (annotatedChapters.length < sequentialAnnotatedChapters.length) {
+                annotatedChapters = sequentialAnnotatedChapters;
+            }
+        }
+
+        let mappedGroups = buildChapterGroups(annotatedChapters);
+        mappedGroups.forEach((group) => {
+            group.chapters = group.chapters
+                .map(chapter => chaptersByUrl.get(chapter.sourceUrl) ?? null)
+                .filter(chapter => chapter != null);
+            group.count = group.chapters.length;
+        });
+        return mappedGroups.filter(group => 0 < group.chapters.length);
+    }
+
     function createComment(doc, content) {
         content = clearIfDataUri(content);
         // comments are not allowed to contain a double hyphen
@@ -1160,8 +1619,14 @@ const util = (function() {
         BLOCK_ELEMENTS: BLOCK_ELEMENTS,
         HEADER_TAGS: HEADER_TAGS,
         sleep: sleep,
-        sleepController: sleepController,
+        get sleepController() {
+            return sleepController;
+        },
+        set sleepController(value) {
+            sleepController = value;
+        },
         randomInteger: randomInteger,
+        isAbortError: isAbortError,
         isFirefox: isFirefox,
         extensionVersion: extensionVersion,
         createEmptyXhtmlDoc: createEmptyXhtmlDoc,
@@ -1223,6 +1688,11 @@ const util = (function() {
         isNullOrEmpty: isNullOrEmpty,
         wrapRawTextNode: wrapRawTextNode,
         hyperlinksToChapterList: hyperlinksToChapterList,
+        extractChapterNumber: extractChapterNumber,
+        chapterGroupTypeLabel: chapterGroupTypeLabel,
+        makeChapterGroupDisplayTitle: makeChapterGroupDisplayTitle,
+        buildChapterGroups: buildChapterGroups,
+        mapReferenceChapterGroupsToChapters: mapReferenceChapterGroupsToChapters,
         removeTrailingSlash: removeTrailingSlash,
         removeAnchor: removeAnchor,
         normalizeUrlForCompare: normalizeUrlForCompare,

@@ -281,12 +281,24 @@ class UserPreferences { // eslint-disable-line no-unused-vars
         let theme = document.querySelector("#themeColorTag").value;
         let autodark = document.querySelector("link#autoDark");
         let alwaysDark = document.querySelector("link#alwaysDark");
+        let body = document.body;
+        let html = document.documentElement;
         autodark.disabled = true;
         alwaysDark.disabled = true;
         if (theme == "") {
             autodark.disabled = false;
         } else if (theme == "DarkMode") {
             alwaysDark.disabled = false;
+        }
+
+        let prefersDark = (window.matchMedia != null)
+            && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        let darkActive = (theme == "DarkMode") || ((theme == "") && prefersDark);
+        body.classList.toggle("ns-theme-dark-active", darkActive);
+        body.classList.toggle("ns-theme-light-active", !darkActive);
+        if (html != null) {
+            html.classList.toggle("ns-theme-dark-active", darkActive);
+            html.classList.toggle("ns-theme-light-active", !darkActive);
         }
     }
 }

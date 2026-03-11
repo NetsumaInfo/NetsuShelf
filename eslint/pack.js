@@ -24,6 +24,7 @@ var adjustedFileListForEslint = function(fileList) {
     return fileList
         .filter(e => e !== "@zip.js/zip.js/dist/zip-no-worker.min.js")
         .filter(e => e !== "dompurify/dist/purify.min.js")
+        .filter(e => e !== "js/popupShell.js")
         .map(f => "../plugin/" + f);
 };
 
@@ -189,6 +190,10 @@ var packNonManifestExtensionFiles = function(zip, packedFileName) {
             return addCssFileToZip(zip, "alwaysDark.css");
         }).then(function() {
             return addCssFileToZip(zip, "autoDark.css");
+        }).then(function() {
+            return addCssFileToZip(zip, "popup-tailwind.css");
+        }).then(function() {
+            return addCssFileToZip(zip, "popup-overrides.css");
         }).then(function() {
             return getFileList("../plugin/popup.html");
         }).then(function(fileList) {

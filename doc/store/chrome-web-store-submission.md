@@ -29,6 +29,12 @@ NetsuShelf is a browser extension that converts supported web novels and other s
 
 It works with many supported sites, including Royal Road, Archive of Our Own, FanFiction.net, WuxiaWorld, Baka-Tsuki, Webnovel, and many other novel or fiction sites supported by the extension.
 
+Export formats:
+- EPUB
+- HTML
+- PDF
+- TXT
+
 How to use on series or table of contents pages:
 1. Open a supported page that shows the story overview and the list of chapters.
 2. Click the NetsuShelf extension icon.
@@ -43,7 +49,13 @@ How to use on sites that start from the first chapter:
 3. Let NetsuShelf analyze the page and build the chapter list.
 4. Adjust the details if needed, then click Pack EPUB.
 
-NetsuShelf also includes chapter range selection, metadata editing, cover image handling, and optional local library storage for later updates.
+Main features:
+- Choose chapter ranges with first and last chapter selectors
+- Type chapter numbers directly in the range inputs
+- Edit title, author, language, filename, and cover image
+- Export in EPUB, HTML, PDF, or TXT format
+- Use advanced options for metadata, naming, images, and chapter cleanup
+- Save EPUBs in the optional local library for later updates
 
 Processing happens in the browser. NetsuShelf only contacts the story pages, images, and optional metadata sources needed for the features you explicitly use.
 ```
@@ -100,7 +112,7 @@ Chrome's privacy guidance:
 ### Single purpose description
 
 ```text
-Convert the story page selected by the user into an EPUB file for offline reading, including chapter selection, metadata cleanup, cover handling, and optional local library storage.
+Convert the story page selected by the user into an offline reading export, including chapter selection, metadata cleanup, cover handling, and optional local library storage.
 ```
 
 ### Permission justifications
@@ -137,17 +149,24 @@ Use these justifications in the Privacy practices tab:
 
 ### Data usage
 
-Recommended disclosure:
+Recommended disclosure, inspired by the public WebToEpub listing:
 
-- Mark `Website content`
-- Mark `Web browsing activity`
-- If the dashboard separately lists `Authentication information`, mark it because the extension can access site cookies transiently to fetch user-requested content from supported sites
+- Primary data type: `Website content`
+- Position the extension as local processing of user-requested story pages, not developer-side collection
+- State clearly that the developer does not sell user data
+- State clearly that the developer does not use user data for unrelated purposes
 
 Recommended certification answers:
 
 - No sale of user data
 - No use for unrelated advertising
 - No use for creditworthiness or lending decisions
+
+Recommended short privacy explanation for the dashboard:
+
+```text
+NetsuShelf processes the story pages selected by the user inside the browser to generate offline reading exports. The developer does not collect, sell, or use this data for unrelated purposes. Any network requests are direct browser requests to the story site or optional metadata source explicitly requested by the user.
+```
 
 ### Privacy policy URL
 
@@ -191,3 +210,4 @@ What to expect:
 - The package should be rebuilt and re-uploaded after the manifest description change if you want the package summary to appear in the dashboard.
 - Do not reuse the old repo screenshot that still shows `WebToEpub`.
 - For the first pass, you can submit without the optional promo and marquee images.
+- Do not advertise `MOBI` yet in the store listing. The selector exists in the UI, but the current runtime still throws an error for MOBI export.

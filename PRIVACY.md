@@ -4,13 +4,15 @@ Last updated: March 11, 2026
 
 NetsuShelf is a browser extension that converts supported web novel and story pages into EPUB files for offline reading.
 
+NetsuShelf is designed for local, user-requested processing. The developer does not run a service that collects your reading content, library, or exports.
+
 ## What NetsuShelf accesses
 
 NetsuShelf may access the following data only when you use the extension on a page that you choose:
 
 - The URL of the current tab and linked chapter URLs on the selected site
-- The text, metadata, and images needed to build an EPUB from the selected story
-- Site cookies or other request headers when they are required to fetch chapters or images from the site you selected
+- The text, metadata, and images needed to build an offline export from the selected story
+- Site cookies or other request data when they are required to fetch chapters or images from the site you selected
 - Settings and library items saved by the user inside the extension
 
 ## How NetsuShelf uses data
@@ -18,8 +20,8 @@ NetsuShelf may access the following data only when you use the extension on a pa
 NetsuShelf uses this data only to provide its user-facing features:
 
 - Analyze the current story page
-- Build an EPUB from selected chapters
-- Download the generated EPUB to your device
+- Build an EPUB, HTML, PDF, or TXT export from selected chapters
+- Download the generated file to your device
 - Save your local preferences and optional local library entries
 - Optionally query reference or metadata sources that you request through the extension UI
 
@@ -34,9 +36,13 @@ NetsuShelf does not operate a developer-controlled backend service for syncing o
 
 ## Data sharing
 
+NetsuShelf does not collect your story content for the developer.
+
 NetsuShelf does not sell user data.
 
-NetsuShelf does not transfer user data to third parties except when the extension makes direct requests, from your browser, to the websites that you explicitly choose to read or to optional metadata/reference sources triggered by the extension's features. Those sites receive the same kind of request data needed to return the requested page or metadata.
+NetsuShelf does not use user data for advertising, profiling, or unrelated analytics.
+
+NetsuShelf does not transfer your story content to a developer-controlled backend. The only third-party transfers involved are the direct browser requests needed to load the story pages, images, or optional metadata/reference pages that you explicitly request through the extension.
 
 ## Remote services contacted by the extension
 

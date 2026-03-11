@@ -25,11 +25,20 @@ This file gives copy-ready text for the Chrome Web Store Developer Dashboard.
 Use this text in the `Description` field:
 
 ```text
-NetsuShelf turns supported web novels and story pages into clean EPUB files for offline reading.
+NetsuShelf converts supported web novels and story pages into EPUB files for offline reading.
 
-Open a supported story page, let NetsuShelf analyze the title, author, cover, and chapter list, then export the chapters you want as an EPUB. You can choose chapter ranges, fine-tune metadata, select or replace the cover image, and keep optional library entries locally in the extension for later updates.
+It works best when you open a supported series, table of contents, or chapter list page that shows all chapters of the story. NetsuShelf can then detect the title, author, cover, and chapter list automatically and let you export the range you want.
 
-NetsuShelf is built for reader-controlled exports. Processing happens in the browser and the extension only contacts the sites needed to fetch the pages, images, and optional metadata that you explicitly request.
+How to use:
+1. Open a supported story page that lists all or most chapters.
+2. Click the NetsuShelf extension icon.
+3. Wait for NetsuShelf to analyze the page and load the chapter list.
+4. Choose the first and last chapter you want to include. You can also type chapter numbers directly in the chapter range inputs.
+5. Click Pack EPUB to generate and download the book.
+
+NetsuShelf also lets you adjust metadata, choose or replace the cover image, and keep optional local library entries in the browser for later updates.
+
+Processing happens in the browser. NetsuShelf only contacts the sites needed to fetch the story pages, images, and optional metadata that you explicitly request.
 ```
 
 ### Category
@@ -159,10 +168,11 @@ https://www.royalroad.com/fiction/21220/mother-of-learning
 
 How to test:
 1. Open the page above.
-2. Click the NetsuShelf extension icon.
-3. Wait for the extension to analyze the page and populate the title, author, cover, and chapter list.
-4. In the chapter selection section, type a chapter number into the `No.` field for First Chapter or Last Chapter and verify that the matching chapter is selected.
-5. Click `Pack EPUB` and confirm that an EPUB download is created.
+2. Confirm that it is a story page with a full chapter list or table of contents.
+3. Click the NetsuShelf extension icon.
+4. Wait for the extension to analyze the page and populate the title, author, cover, and chapter list.
+5. In the chapter selection section, type a chapter number into the `No.` field for First Chapter or Last Chapter and verify that the matching chapter is selected.
+6. Click `Pack EPUB` and confirm that an EPUB download is created.
 
 What to expect:
 - The extension reads the selected story page, builds a chapter list, and exports the selected range as an EPUB.

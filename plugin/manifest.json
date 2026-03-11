@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "NetsuShelf",
   "description": "Convert supported web novels and story pages into EPUB files for offline reading.",
-  "version": "1.0.12.5",
+  "version": "1.0.12.6",
   "default_locale": "en",
   "icons": {
     "128": "book128.png"

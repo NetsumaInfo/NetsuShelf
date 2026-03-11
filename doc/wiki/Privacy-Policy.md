@@ -1,4 +1,4 @@
-# NetsuShelf Privacy Policy
+# Privacy Policy
 
 Last updated: March 11, 2026
 

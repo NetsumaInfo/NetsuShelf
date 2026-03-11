@@ -25,20 +25,27 @@ This file gives copy-ready text for the Chrome Web Store Developer Dashboard.
 Use this text in the `Description` field:
 
 ```text
-NetsuShelf converts supported web novels and story pages into EPUB files for offline reading.
+NetsuShelf is a browser extension that converts supported web novels and other story pages into EPUB files for offline reading.
 
-It works best when you open a supported series, table of contents, or chapter list page that shows all chapters of the story. NetsuShelf can then detect the title, author, cover, and chapter list automatically and let you export the range you want.
+It works with many supported sites, including Royal Road, Archive of Our Own, FanFiction.net, WuxiaWorld, Baka-Tsuki, Webnovel, and many other novel or fiction sites supported by the extension.
 
-How to use:
-1. Open a supported story page that lists all or most chapters.
+How to use on series or table of contents pages:
+1. Open a supported page that shows the story overview and the list of chapters.
 2. Click the NetsuShelf extension icon.
-3. Wait for NetsuShelf to analyze the page and load the chapter list.
-4. Choose the first and last chapter you want to include. You can also type chapter numbers directly in the chapter range inputs.
-5. Click Pack EPUB to generate and download the book.
+3. Check that the detected title, author, cover, and chapter list are correct.
+4. Choose the first and last chapter you want to include. You can also type chapter numbers directly in the range inputs.
+5. Click Pack EPUB.
+6. Wait for the download to finish and the EPUB file to appear in your downloads folder.
 
-NetsuShelf also lets you adjust metadata, choose or replace the cover image, and keep optional local library entries in the browser for later updates.
+How to use on sites that start from the first chapter:
+1. Open the first chapter of the story you want to export.
+2. Click the NetsuShelf extension icon.
+3. Let NetsuShelf analyze the page and build the chapter list.
+4. Adjust the details if needed, then click Pack EPUB.
 
-Processing happens in the browser. NetsuShelf only contacts the sites needed to fetch the story pages, images, and optional metadata that you explicitly request.
+NetsuShelf also includes chapter range selection, metadata editing, cover image handling, and optional local library storage for later updates.
+
+Processing happens in the browser. NetsuShelf only contacts the story pages, images, and optional metadata sources needed for the features you explicitly use.
 ```
 
 ### Category

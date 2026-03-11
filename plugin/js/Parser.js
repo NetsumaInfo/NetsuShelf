@@ -516,25 +516,240 @@ class Parser {
 
         try {
             let chapters = await this.getChapterUrls(firstPageDom, chapterUrlsUI);
+            chapters = await this.expandChapterListFromCurrentPage(url, firstPageDom, chapters, chapterUrlsUI);
             if (this.userPreferences.chaptersPageInChapterList.value) {
                 chapters = this.addFirstPageUrlToWebPages(url, firstPageDom, chapters);
             }
             chapters = this.cleanWebPageUrls(chapters);
             chapters?.forEach(chapter => chapter.title = chapter.title?.trim());
-            await this.userPreferences.readingList.deselectOldChapters(url, chapters);
+            await this.tryDeselectOldChapters(url, chapters);
+            this.preselectCurrentChapter(url, firstPageDom, chapters);
             this.state.setPagesToFetch(chapters);
             chapterUrlsUI.populateChapterUrlsTable(chapters);
+            let currentChapter = this.findChapterByUrl(url, chapters);
+            if (currentChapter != null) {
+                currentChapter.rawDom = firstPageDom;
+                this.updateLoadState(currentChapter);
+            }
             if (0 < chapters.length) {
-                if (chapters[0].sourceUrl === url) {
-                    chapters[0].rawDom = firstPageDom;
-                    this.updateLoadState(chapters[0]);
-                }
                 ProgressBar.setValue(0);
             }
             chapterUrlsUI.connectButtonHandlers();
         } catch (err) {
             ErrorLog.showErrorMessage(err);
         }
+    }
+
+    async tryDeselectOldChapters(url, chapters) {
+        if (this.userPreferences?.readingList == null) {
+            return;
+        }
+
+        try {
+            await Promise.race([
+                this.userPreferences.readingList.deselectOldChapters(url, chapters),
+                util.sleep(750)
+            ]);
+        } catch {
+            // Best-effort only. Never block initial chapter rendering on reading list state.
+        }
+    }
+
+    async expandChapterListFromCurrentPage(url, firstPageDom, chapters, chapterUrlsUI) {
+        if (!this.shouldAutoExpandChapterList(url, firstPageDom, chapters)) {
+            return chapters;
+        }
+
+        let discoveredChapters = new Map();
+        let pendingPages = [{ url: url, dom: firstPageDom }];
+        let visitedUrls = new Set();
+
+        while (pendingPages.length !== 0) {
+            let pending = pendingPages.shift();
+            let normalizedUrl = util.normalizeUrlForCompare(pending.url);
+            if (visitedUrls.has(normalizedUrl)) {
+                continue;
+            }
+            visitedUrls.add(normalizedUrl);
+
+            let pageDom = pending.dom;
+            if (pageDom == null) {
+                await this.rateLimitDelay();
+                pageDom = (await HttpClient.wrapFetch(pending.url)).responseXML;
+            }
+
+            let partialChapters = await this.getChapterUrls(pageDom, chapterUrlsUI);
+            partialChapters = this.ensureCurrentPageIncludedInChapterList(pending.url, pageDom, partialChapters);
+            partialChapters = this.cleanWebPageUrls(partialChapters);
+            partialChapters.forEach((chapter) => this.mergeDiscoveredChapter(discoveredChapters, chapter));
+
+            let adjacentUrls = this.findAdjacentChapterUrls(pageDom, pending.url);
+            adjacentUrls.forEach((adjacentUrl) => {
+                let adjacentKey = util.normalizeUrlForCompare(adjacentUrl);
+                if (!visitedUrls.has(adjacentKey)) {
+                    pendingPages.push({ url: adjacentUrl, dom: null });
+                }
+            });
+        }
+
+        if (discoveredChapters.size === 0) {
+            return chapters;
+        }
+        return this.sortAutoDiscoveredChapters([...discoveredChapters.values()]);
+    }
+
+    shouldAutoExpandChapterList(url, firstPageDom, chapters = []) {
+        if (util.isNullOrEmpty(url)) {
+            return false;
+        }
+        if (!Array.isArray(chapters)) {
+            return true;
+        }
+        let currentChapter = this.findChapterByUrl(url, chapters);
+        if (currentChapter == null) {
+            return this.findAdjacentChapterUrls(firstPageDom, url).length !== 0;
+        }
+        return chapters.length <= 3;
+    }
+
+    sortAutoDiscoveredChapters(chapters = []) {
+        let chapterNumbers = chapters.map(chapter => util.extractChapterNumber(chapter));
+        let canSortByChapterNumber = (0 < chapterNumbers.length) && chapterNumbers.every(number => number != null);
+        if (!canSortByChapterNumber) {
+            return chapters;
+        }
+        return chapters.sort((left, right) => {
+            let leftNumber = util.extractChapterNumber(left);
+            let rightNumber = util.extractChapterNumber(right);
+            if (leftNumber !== rightNumber) {
+                return leftNumber - rightNumber;
+            }
+            return (left.title ?? "").localeCompare(right.title ?? "");
+        });
+    }
+
+    ensureCurrentPageIncludedInChapterList(url, dom, chapters = []) {
+        let currentChapter = this.findChapterByUrl(url, chapters);
+        if (currentChapter != null) {
+            return chapters;
+        }
+        return [{
+            sourceUrl: url,
+            title: this.extractTitle(dom)
+        }].concat(chapters ?? []);
+    }
+
+    mergeDiscoveredChapter(discoveredChapters, chapter) {
+        if ((chapter == null) || util.isNullOrEmpty(chapter.sourceUrl)) {
+            return;
+        }
+        let key = util.normalizeUrlForCompare(chapter.sourceUrl);
+        let existingChapter = discoveredChapters.get(key);
+        if (existingChapter == null) {
+            discoveredChapters.set(key, chapter);
+            return;
+        }
+
+        let mergedChapter = {
+            ...existingChapter,
+            ...chapter
+        };
+        if (util.isNullOrEmpty(mergedChapter.title)) {
+            mergedChapter.title = existingChapter.title ?? chapter.title ?? "";
+        }
+        mergedChapter.isIncludeable = existingChapter.isIncludeable ?? chapter.isIncludeable;
+        discoveredChapters.set(key, mergedChapter);
+    }
+
+    findChapterByUrl(url, chapters = []) {
+        let normalizedUrl = util.normalizeUrlForCompare(url);
+        return chapters.find(chapter => util.normalizeUrlForCompare(chapter.sourceUrl) === normalizedUrl) ?? null;
+    }
+
+    preselectCurrentChapter(url, firstPageDom, chapters = []) {
+        let currentChapter = this.findChapterByUrl(url, chapters);
+        if ((currentChapter == null) || !this.shouldPreselectCurrentChapter(firstPageDom, currentChapter, chapters)) {
+            return;
+        }
+
+        chapters.forEach((chapter) => {
+            chapter.isIncludeable = util.normalizeUrlForCompare(chapter.sourceUrl)
+                === util.normalizeUrlForCompare(currentChapter.sourceUrl);
+        });
+    }
+
+    shouldPreselectCurrentChapter(firstPageDom, currentChapter, chapters = []) {
+        if ((currentChapter == null) || (chapters.length <= 1)) {
+            return false;
+        }
+        if (this.findAdjacentChapterUrls(firstPageDom, currentChapter.sourceUrl).length !== 0) {
+            return true;
+        }
+        return util.extractChapterNumber(currentChapter) != null;
+    }
+
+    findAdjacentChapterUrls(dom, currentUrl) {
+        if (dom == null) {
+            return [];
+        }
+
+        let currentKey = util.normalizeUrlForCompare(currentUrl);
+        let matches = new Map();
+        let directionMatchers = [
+            {
+                direction: "previous",
+                rel: "prev",
+                patterns: [/\bprev(?:ious)?\b/i, /\bolder\b/i, /\bprecedent\b/i, /\bpr[eé]c[eé]dent\b/i, /\bchapitre pr[eé]c[eé]dent\b/i]
+            },
+            {
+                direction: "next",
+                rel: "next",
+                patterns: [/\bnext\b/i, /\bnewer\b/i, /\bsuivant\b/i, /\bchapitre suivant\b/i]
+            }
+        ];
+
+        for (let link of dom.querySelectorAll("a[href]")) {
+            let normalizedHref = util.normalizeUrlForCompare(link.href);
+            if ((normalizedHref === currentKey) || !util.isUrl(link.href)) {
+                continue;
+            }
+
+            let text = [
+                link.textContent ?? "",
+                link.getAttribute("rel") ?? "",
+                link.getAttribute("aria-label") ?? "",
+                link.getAttribute("title") ?? "",
+                link.className ?? "",
+                link.id ?? "",
+                link.parentElement?.className ?? ""
+            ].join(" ").replace(/\s+/g, " ").trim();
+
+            for (let matcher of directionMatchers) {
+                let score = 0;
+                let hasDirectionSignal = false;
+                if ((link.getAttribute("rel") || "").toLowerCase().includes(matcher.rel)) {
+                    score += 100;
+                    hasDirectionSignal = true;
+                }
+                if (matcher.patterns.some(pattern => pattern.test(text))) {
+                    score += 50;
+                    hasDirectionSignal = true;
+                }
+                if (hasDirectionSignal && (util.extractChapterNumber({ title: text, sourceUrl: link.href }) != null)) {
+                    score += 10;
+                }
+                if (!hasDirectionSignal || (score === 0)) {
+                    continue;
+                }
+
+                let existing = matches.get(matcher.direction);
+                if ((existing == null) || (existing.score < score)) {
+                    matches.set(matcher.direction, { url: link.href, score: score });
+                }
+            }
+        }
+
+        return [...matches.values()].map(match => match.url);
     }
 
     cleanWebPageUrls(webPages) {
@@ -585,8 +800,8 @@ class Parser {
 
     setUiToShowLoadingProgress(length, loadedCount = 0) {
         main.getPackEpubButton().disabled = true;
-        ProgressBar.setMax(length + 1);
-        ProgressBar.setValue(loadedCount + 1);
+        ProgressBar.setMax(Math.max(length, 1));
+        ProgressBar.setValue(Math.min(loadedCount, length));
     }
 
     async fetchWebPages() {

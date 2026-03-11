@@ -1476,14 +1476,17 @@ var main = (function() {
         return Object.assign(new EpubMetaInfo(), metaInfo);
     }
 
-    function stripDownloadExtension(fileName) {
-        return Download.stripKnownExtension(fileName);
-    }
-
     function buildAutomaticGroupFileStem(baseMetaInfo, group) {
         let storyTitle = baseMetaInfo?.title ?? document.getElementById("titleInput")?.value ?? "download";
         let groupTitle = util.makeChapterGroupDisplayTitle(group);
         return Download.sanitizeFileStem(`${storyTitle} - ${groupTitle}`, Download.sanitizeFileStem(storyTitle, "download"));
+    }
+
+    function buildChapterGroupDownloadFileName(baseMetaInfo, group) {
+        return Download.addExtensionForFormat(
+            buildAutomaticGroupFileStem(baseMetaInfo, group),
+            getSelectedDownloadFormat()
+        );
     }
 
     function buildGroupMetaInfo(baseMetaInfo, group) {
@@ -1866,18 +1869,10 @@ var main = (function() {
 
         let overwriteExisting = userPreferences.overwriteExistingEpub.value;
         let backgroundDownload = userPreferences.noDownloadPopup.value;
-        let metaInfo = buildGroupMetaInfo(metaInfoFromControls(), group);
-        let fileName = buildDownloadFileName({
-            preferSuggestedFileName: true,
-            suggestedFileName: metaInfo.fileName,
-            fileName: stripDownloadExtension(metaInfo.fileName),
-            title: metaInfo.title,
-            chaptersCount: group.count,
-            group: group.displayTitle,
-            groupTitle: group.title ?? group.displayTitle,
-            groupRange: group.rangeLabel
-        });
-        let fileHandle = await pickSaveLocationIfSupported(fileName, backgroundDownload);
+        let baseMetaInfo = metaInfoFromControls();
+        let exactFileName = buildChapterGroupDownloadFileName(baseMetaInfo, group);
+        let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
+        let fileHandle = await pickSaveLocationIfSupported(exactFileName, backgroundDownload);
         if (fileHandle === null) {
             return;
         }
@@ -1895,7 +1890,7 @@ var main = (function() {
                     throwIfDownloadStopped();
                     let content = await buildDownloadContent(metaInfo);
                     throwIfDownloadStopped();
-                    await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                    await saveDownloadedContentWithProvidedFileName(content, exactFileName, overwriteExisting, backgroundDownload, fileHandle);
                     throwIfDownloadStopped();
                 });
             });
@@ -1949,16 +1944,7 @@ var main = (function() {
         let plannedDownloads = groups.map((entry) => {
             let group = entry.group;
             let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
-            let fileName = buildDownloadFileName({
-                preferSuggestedFileName: true,
-                suggestedFileName: metaInfo.fileName,
-                fileName: stripDownloadExtension(metaInfo.fileName),
-                title: metaInfo.title,
-                chaptersCount: group.count,
-                group: group.displayTitle,
-                groupTitle: group.title ?? group.displayTitle,
-                groupRange: group.rangeLabel
-            });
+            let fileName = buildChapterGroupDownloadFileName(baseMetaInfo, group);
             return { ...entry, metaInfo, fileName };
         });
 
@@ -1985,7 +1971,7 @@ var main = (function() {
                         throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
                         throwIfDownloadStopped();
-                        await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                        await saveDownloadedContentWithProvidedFileName(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
                         throwIfDownloadStopped();
                     });
                 });
@@ -2040,16 +2026,7 @@ var main = (function() {
         let plannedDownloads = groups.map((entry) => {
             let group = entry.group;
             let metaInfo = buildGroupMetaInfo(baseMetaInfo, group);
-            let fileName = buildDownloadFileName({
-                preferSuggestedFileName: true,
-                suggestedFileName: metaInfo.fileName,
-                fileName: stripDownloadExtension(metaInfo.fileName),
-                title: metaInfo.title,
-                chaptersCount: group.count,
-                group: group.displayTitle,
-                groupTitle: group.title ?? group.displayTitle,
-                groupRange: group.rangeLabel
-            });
+            let fileName = buildChapterGroupDownloadFileName(baseMetaInfo, group);
             return { ...entry, metaInfo, fileName };
         });
 
@@ -2076,7 +2053,7 @@ var main = (function() {
                         throwIfDownloadStopped();
                         let content = await buildDownloadContent(metaInfo);
                         throwIfDownloadStopped();
-                        await saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
+                        await saveDownloadedContentWithProvidedFileName(content, fileName, overwriteExisting, backgroundDownload, fileHandle);
                         throwIfDownloadStopped();
                     });
                 });
@@ -3090,9 +3067,26 @@ var main = (function() {
         }
     }
 
+    async function pickDeferredSaveLocationIfSupported(fileName, backgroundDownload) {
+        if (backgroundDownload || (typeof window.showSaveFilePicker !== "function")) {
+            return undefined;
+        }
+        try {
+            return await Download.pickSaveLocation(fileName, getSelectedDownloadFormat());
+        } catch (error) {
+            if (["SecurityError", "NotAllowedError"].includes(error?.name)) {
+                return undefined;
+            }
+            throw error;
+        }
+    }
+
     async function saveDownloadedContent(content, fileName, overwriteExisting, backgroundDownload, fileHandle = undefined) {
         if (shouldStopCurrentDownload()) {
             return;
+        }
+        if (fileHandle === undefined) {
+            fileHandle = await pickDeferredSaveLocationIfSupported(fileName, backgroundDownload);
         }
         if (fileHandle !== undefined) {
             if (fileHandle == null) {
@@ -3102,6 +3096,23 @@ var main = (function() {
             return;
         }
         await Download.save(content, fileName, overwriteExisting, backgroundDownload);
+    }
+
+    async function saveDownloadedContentWithProvidedFileName(content, fileName, overwriteExisting, backgroundDownload, fileHandle = undefined) {
+        if (shouldStopCurrentDownload()) {
+            return;
+        }
+        if (fileHandle === undefined) {
+            fileHandle = await pickDeferredSaveLocationIfSupported(fileName, backgroundDownload);
+        }
+        if (fileHandle !== undefined) {
+            if (fileHandle == null) {
+                return;
+            }
+            await Download.saveToPickedLocation(content, fileHandle);
+            return;
+        }
+        await Download.saveProvidedFile(content, fileName, overwriteExisting, backgroundDownload);
     }
 
     function dumpErrorLogToFile() {

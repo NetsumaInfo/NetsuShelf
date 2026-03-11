@@ -177,7 +177,7 @@ jobs:
           gh release delete developer-build --cleanup-tag
 
           echo create developer-build release:
-          gh release create developer-build -p -t "Latest developer build" --target "ExperimentalTabMode" -F output.txt
+          gh release create developer-build -t "Latest developer build" --target "ExperimentalTabMode" -F output.txt
           
           echo add files to release.
           gh release upload developer-build eslint/NetsuShelf%var_build%.Firefox.zip

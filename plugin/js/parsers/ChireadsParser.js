@@ -27,6 +27,10 @@ class ChireadsParser extends WordpressBaseParser {
             || super.findChapterTitle(dom);
     }
 
+    extractTitleImpl(dom) {
+        return this.extractStoryTitle(dom) ?? super.extractTitleImpl(dom);
+    }
+
     async getChapterUrls(dom) {
         let groupedSections = this.extractGroupedChapterSections(dom);
         let chapterLinks = groupedSections.flatMap(section => section.links);
@@ -34,6 +38,20 @@ class ChireadsParser extends WordpressBaseParser {
         groupedSections.forEach(section => section.links.forEach(link => groupInfoByLink.set(link, section.groupInfo)));
         if (chapterLinks.length === 0) {
             chapterLinks = [...dom.querySelectorAll(".chapitre-table a[href]")];
+        }
+        if (chapterLinks.length === 0) {
+            let storyMenuUrl = this.findStoryMenuUrl(dom);
+            if (!util.isNullOrEmpty(storyMenuUrl)) {
+                await this.rateLimitDelay();
+                let storyDom = (await HttpClient.wrapFetch(storyMenuUrl)).responseXML;
+                groupedSections = this.extractGroupedChapterSections(storyDom);
+                chapterLinks = groupedSections.flatMap(section => section.links);
+                groupInfoByLink = new Map();
+                groupedSections.forEach(section => section.links.forEach(link => groupInfoByLink.set(link, section.groupInfo)));
+                if (chapterLinks.length === 0) {
+                    chapterLinks = [...storyDom.querySelectorAll(".chapitre-table a[href]")];
+                }
+            }
         }
         if (chapterLinks.length === 0) {
             return super.getChapterUrls(dom);
@@ -58,6 +76,40 @@ class ChireadsParser extends WordpressBaseParser {
         chapters.sort((left, right) => this.compareChapterNumber(left, right));
         chapters.forEach(chapter => delete chapter.originalOrderIndex);
         return chapters;
+    }
+
+    extractStoryTitle(dom) {
+        let storyLink = this.findStoryMenuLink(dom);
+        if (!util.isNullOrEmpty(storyLink?.textContent)) {
+            return storyLink.textContent.trim();
+        }
+
+        let metaTitle = dom.querySelector("meta[property='og:title']")?.getAttribute("content");
+        if (!util.isNullOrEmpty(metaTitle)) {
+            return metaTitle
+                .replace(/\s+français\s*$/i, "")
+                .replace(/\s*归档\s*$/u, "")
+                .trim();
+        }
+
+        let trackingTitle = dom.querySelector("script")?.textContent;
+        let trackingMatch = trackingTitle?.match(/content_group1'\s*:\s*'([^']+)'/);
+        if (!util.isNullOrEmpty(trackingMatch?.[1])) {
+            return trackingMatch[1].trim();
+        }
+
+        return null;
+    }
+
+    findStoryMenuUrl(dom) {
+        return this.findStoryMenuLink(dom)?.href ?? null;
+    }
+
+    findStoryMenuLink(dom) {
+        return dom.querySelector(".article-book-txt a[href*='/category/translatedtales/']")
+            || [...dom.querySelectorAll(".article-function a[href], .newestchapitre a[href]")]
+                .find(link => /menu|dernier chapitre/i.test(link.textContent || "") || /\/category\/translatedtales\//i.test(link.href))
+            || dom.querySelector("a[href*='/category/translatedtales/']");
     }
 
     extractGroupedChapterSections(dom) {

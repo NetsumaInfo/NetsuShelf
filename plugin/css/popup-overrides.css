@@ -209,24 +209,47 @@ select::-webkit-scrollbar-thumb:hover,
 }
 
 .chapterGroupMarkButton {
-    width: 14px;
-    min-width: 14px;
-    height: 14px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
     padding: 0;
     border-radius: 999px;
     border: 1px solid transparent;
+    background: transparent;
     align-self: center;
     justify-self: start;
-    box-shadow: 0 0 0 4px transparent;
+    box-shadow: none;
+    margin: -4px;
+    color: inherit;
 }
 
-.chapterGroupMarkButton[data-state="selected"] {
+.chapterGroupMarkButton:hover {
+    background: transparent;
+    border-color: transparent;
+}
+
+.chapterGroupMarkButton::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    box-shadow: 0 0 0 4px transparent;
+    transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.chapterGroupMarkButton[data-state="selected"]::before {
     border-color: rgba(16, 185, 129, 0.7);
     background: #10b981;
     box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
 }
 
-.chapterGroupMarkButton[data-state="unselected"] {
+.chapterGroupMarkButton[data-state="unselected"]::before {
     border-color: rgba(244, 63, 94, 0.52);
     background: #e11d48;
     box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.12);
@@ -718,13 +741,20 @@ body.ns-theme-dark-active .chapterGroupCardSelectedCount {
     color: #9fb3d1;
 }
 
-body.ns-theme-dark-active .chapterGroupMarkButton[data-state="selected"] {
+body.ns-theme-dark-active .chapterGroupMarkButton[data-state="selected"]::before {
     border-color: rgba(52, 211, 153, 0.58);
     background: #34d399;
     box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.16);
 }
 
-body.ns-theme-dark-active .chapterGroupMarkButton[data-state="unselected"] {
+body.ns-theme-dark-active .chapterGroupMarkButton,
+body.ns-theme-dark-active .chapterGroupMarkButton:hover {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+body.ns-theme-dark-active .chapterGroupMarkButton[data-state="unselected"]::before {
     border-color: rgba(251, 113, 133, 0.54);
     background: #fb7185;
     box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.14);

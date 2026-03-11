@@ -200,6 +200,21 @@ class Download {
         });
     }
 
+    static normalizeProvidedFileName(fileName, fallback = "download") {
+        let value = (fileName ?? "").trim();
+        if (value === "") {
+            value = fallback;
+        }
+        let parts = value.split(".");
+        if (parts.length <= 1) {
+            return Download.sanitizeFileStem(value, fallback);
+        }
+        let extension = parts.pop().trim();
+        let stem = Download.sanitizeFileStem(parts.join("."), fallback);
+        extension = extension.replace(/[\\/:*?"<>|\s]+/g, "").trim();
+        return extension === "" ? stem : `${stem}.${extension}`;
+    }
+
     static errorMessage(error) {
         return error?.message ?? String(error ?? "Download failed");
     }
@@ -212,10 +227,11 @@ class Download {
         return error instanceof Error ? error : new Error(message);
     }
 
-    static canUseSavePicker(backgroundDownload = false) {
-        return !backgroundDownload
-            && (typeof window.showSaveFilePicker === "function")
-            && !util.isFirefox();
+    static canUseSavePicker() {
+        // In the extension UI, opening the picker before packing breaks the
+        // expected workflow. Always let the browser download flow prompt at
+        // the end once the export blob is ready.
+        return false;
     }
 
     static async pickSaveLocation(fileName, format = Download.outputFormat()) {
@@ -251,11 +267,22 @@ class Download {
     static save(blob, fileName, overwriteExisting, backgroundDownload) {
         let format = Download.outputFormat();
         let normalizedFileName = Download.normalizeSaveFileName(fileName, format);
+        return Download.savePrepared(blob, normalizedFileName, overwriteExisting, backgroundDownload);
+    }
+
+    static saveProvidedFile(blob, fileName, overwriteExisting = false, backgroundDownload = false) {
+        let normalizedFileName = Download.normalizeProvidedFileName(fileName);
+        return Download.savePrepared(blob, normalizedFileName, overwriteExisting, backgroundDownload);
+    }
+
+    static savePrepared(blob, normalizedFileName, overwriteExisting, backgroundDownload) {
         let options = {
             url: URL.createObjectURL(blob),
-            filename: normalizedFileName,
             saveAs: !backgroundDownload
         };
+        if (util.isFirefox()) {
+            options.filename = normalizedFileName;
+        }
         if (backgroundDownload) {
             options.conflictAction = overwriteExisting ? "overwrite" : "uniquify";
         }

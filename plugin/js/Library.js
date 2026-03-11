@@ -939,7 +939,7 @@ class Library { // eslint-disable-line no-unused-vars
                 zipWriter.add("Library/"+i+"/LibNewChapterCount", new zip.TextReader(items["LibNewChapterCount"+CurrentLibKeys[i]] ?? "0"));
             }
             zipWriter.add("ReadingList.json", new zip.TextReader(JSON.stringify(fileReadingList)));
-            Download.save(await zipWriter.close(), "Libraryexport.zip").catch (err => ErrorLog.showErrorMessage(err));
+            Download.saveProvidedFile(await zipWriter.close(), "Libraryexport.zip").catch (err => ErrorLog.showErrorMessage(err));
             Library.LibRenderSavedEpubs();
         });
     }

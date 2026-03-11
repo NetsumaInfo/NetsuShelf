@@ -99,6 +99,7 @@ class ChapterUrlsUI {
                     return;
                 }
                 select.addEventListener("keydown", ChapterUrlsUI.onRangeSelectKeyDown);
+                select.addEventListener("input", ChapterUrlsUI.onRangeSelectInput);
                 select.addEventListener("blur", ChapterUrlsUI.resetRangeSelectTypeAhead);
                 select.addEventListener("change", ChapterUrlsUI.resetRangeSelectTypeAhead);
                 select.dataset.numericChapterJumpBound = "true";
@@ -273,14 +274,18 @@ class ChapterUrlsUI {
         let rangeEnd = ChapterUrlsUI.getRangeEndChapterSelect();
 
         rangeStart.onchange = null;
+        rangeStart.oninput = null;
         rangeEnd.onchange = null;
+        rangeEnd.oninput = null;
         
         rangeStart.selectedIndex = 0;
         rangeEnd.selectedIndex = rangeEnd.length - 1;
         ChapterUrlsUI.setChapterCount(rangeStart.selectedIndex, rangeEnd.selectedIndex);
         
         rangeStart.onchange = ChapterUrlsUI.onRangeChanged;
+        rangeStart.oninput = ChapterUrlsUI.onRangeChanged;
         rangeEnd.onchange = ChapterUrlsUI.onRangeChanged;
+        rangeEnd.oninput = ChapterUrlsUI.onRangeChanged;
     }
  
     /** @private */
@@ -352,6 +357,10 @@ class ChapterUrlsUI {
         ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query);
     }
 
+    static onRangeSelectInput() {
+        ChapterUrlsUI.onRangeChanged();
+    }
+
     static buildRangeSelectTypeAheadQuery(select, digit) {
         let previousQuery = select.dataset.chapterJumpQuery ?? "";
         let previousTimestamp = parseInt(select.dataset.chapterJumpTimestamp ?? "0", 10);
@@ -383,10 +392,9 @@ class ChapterUrlsUI {
             return;
         }
 
-        let exactMatch = visibleOptions.find(option => option.dataset.chapterNumber === query);
+        let exactMatch = visibleOptions.find(option => ChapterUrlsUI.optionHasChapterNumberMatch(option, query, true));
         let matchedOption = exactMatch ?? visibleOptions.find(option => {
-            let chapterNumber = option.dataset.chapterNumber ?? "";
-            return chapterNumber.startsWith(query);
+            return ChapterUrlsUI.optionHasChapterNumberMatch(option, query, false);
         });
         if (matchedOption == null) {
             return;
@@ -398,6 +406,16 @@ class ChapterUrlsUI {
 
         select.selectedIndex = matchedOption.index;
         ChapterUrlsUI.onRangeChanged();
+    }
+
+    static optionHasChapterNumberMatch(option, query, exact) {
+        let chapterNumbers = (option.dataset.chapterNumbers ?? "")
+            .split("|")
+            .filter(value => value !== "");
+        return chapterNumbers.some(chapterNumber => exact
+            ? (chapterNumber === query)
+            : chapterNumber.startsWith(query)
+        );
     }
 
     /** @private */
@@ -669,8 +687,22 @@ class ChapterUrlsUI {
 
     static appendOptionToSelect(select, value, chapter, memberForTextOption) {
         let option = new Option(chapter[memberForTextOption], value);
-        option.dataset.chapterNumber = String(value + 1);
+        option.dataset.chapterNumbers = ChapterUrlsUI.getSearchableChapterNumbers(chapter, value + 1).join("|");
         select.add(option);
+    }
+
+    static getSearchableChapterNumbers(chapter, fallbackIndex) {
+        let numbers = [];
+        let addMatches = (text) => {
+            let matches = String(text ?? "").match(/\d+(?:\.\d+)?/g) ?? [];
+            matches.forEach((match) => numbers.push(match));
+        };
+
+        addMatches(chapter?.title);
+        addMatches(chapter?.sourceUrl);
+        numbers.push(String(fallbackIndex));
+
+        return [...new Set(numbers)];
     }
 
     /** @private */

@@ -28,7 +28,7 @@
   "incognito": "split",
   "browser_specific_settings": {
     "gecko": {
-      "id": "WebToEpub@Baka-tsuki.org",
+      "id": "netsushelf@netsuma.info",
       "data_collection_permissions": {
         "required": [
           "none"

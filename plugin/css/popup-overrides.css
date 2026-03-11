@@ -502,6 +502,17 @@ progress::-moz-progress-bar {
     margin-top: 0;
 }
 
+.chapterRangeSelector {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.55rem;
+    align-items: center;
+}
+
+.chapterRangeNumberInput {
+    text-align: center;
+}
+
 .chapterWorkflowBlock .chapterActionBar,
 .chapterWorkflowBlock .chapterToolsControls,
 .chapterWorkflowBlock .smartSelectControls,

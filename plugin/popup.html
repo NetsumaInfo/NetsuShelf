@@ -560,13 +560,41 @@
                             <table id="rangeSelectTable">
                             <tr id="rangeStartChapterRow">
                                 <td>__MSG_label_Range_Start_Chapter__</td>
-                                <td><select id="selectRangeStartChapter" /></td>
+                                <td>
+                                    <div class="chapterRangeSelector">
+                                        <input
+                                            id="selectRangeStartChapterNumber"
+                                            class="chapterRangeNumberInput"
+                                            type="text"
+                                            inputmode="numeric"
+                                            pattern="[0-9]*"
+                                            autocomplete="off"
+                                            placeholder="No."
+                                            aria-label="First chapter number"
+                                        />
+                                        <select id="selectRangeStartChapter"></select>
+                                    </div>
+                                </td>
                                 <td><input id="showChapterUrlsCheckbox" type="checkbox" name="showChapterUrlsCheckbox" value="false"></td>
                                 <td>__MSG_label_Show_Chapter_Urls__</td>
                             </tr>
                             <tr id="rangeEndChapterRow">
                                 <td>__MSG_label_Range_End_Chapter__</td>
-                                <td><select id="selectRangeEndChapter" /></td>
+                                <td>
+                                    <div class="chapterRangeSelector">
+                                        <input
+                                            id="selectRangeEndChapterNumber"
+                                            class="chapterRangeNumberInput"
+                                            type="text"
+                                            inputmode="numeric"
+                                            pattern="[0-9]*"
+                                            autocomplete="off"
+                                            placeholder="No."
+                                            aria-label="Last chapter number"
+                                        />
+                                        <select id="selectRangeEndChapter"></select>
+                                    </div>
+                                </td>
                                 <td colspan="2">&nbsp;</td>
                             </tr>
                             <tr id="rangeChapterCountRow">

@@ -92,18 +92,28 @@ class ChapterUrlsUI {
     }
 
     connectRangeChapterSelectHandlers() {
-        [ChapterUrlsUI.getRangeStartChapterSelect(), ChapterUrlsUI.getRangeEndChapterSelect()]
-            .filter(select => select != null)
-            .forEach((select) => {
-                if (select.dataset.numericChapterJumpBound === "true") {
-                    return;
-                }
-                select.addEventListener("keydown", ChapterUrlsUI.onRangeSelectKeyDown);
+        ChapterUrlsUI.getRangeSelectBindings().forEach(({ select, input }) => {
+            if (input != null) {
+                input.dataset.selectId = select.id;
+            }
+            if (select.dataset.numericChapterJumpBound !== "true") {
+                select.dataset.rangeInputId = input?.id ?? "";
+                select.addEventListener("keydown", (event) => ChapterUrlsUI.onRangeSelectKeyDown(event, input));
+                select.addEventListener("keypress", ChapterUrlsUI.onRangeSelectKeyPress);
                 select.addEventListener("input", ChapterUrlsUI.onRangeSelectInput);
-                select.addEventListener("blur", ChapterUrlsUI.resetRangeSelectTypeAhead);
-                select.addEventListener("change", ChapterUrlsUI.resetRangeSelectTypeAhead);
+                select.addEventListener("blur", () => {
+                    ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+                    ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, true);
+                });
                 select.dataset.numericChapterJumpBound = "true";
-            });
+            }
+            if ((input != null) && (input.dataset.numericChapterJumpBound !== "true")) {
+                input.addEventListener("input", (event) => ChapterUrlsUI.onRangeNumberInput(event, select));
+                input.addEventListener("change", (event) => ChapterUrlsUI.onRangeNumberInput(event, select, true));
+                input.addEventListener("blur", () => ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, true));
+                input.dataset.numericChapterJumpBound = "true";
+            }
+        });
     }
 
     populateChapterUrlsTable(chapters) {
@@ -203,6 +213,12 @@ class ChapterUrlsUI {
         util.removeElements(ChapterUrlsUI.getTableRowsWithChapters());
         util.removeElements([...ChapterUrlsUI.getRangeStartChapterSelect().options]);
         util.removeElements([...ChapterUrlsUI.getRangeEndChapterSelect().options]);
+        ChapterUrlsUI.getRangeSelectBindings().forEach(({ input, select }) => {
+            if (input != null) {
+                input.value = "";
+            }
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+        });
         let chapterGroupSelect = ChapterUrlsUI.getChapterGroupSelect();
         if (chapterGroupSelect != null) {
             util.removeElements([...chapterGroupSelect.options]);
@@ -286,6 +302,7 @@ class ChapterUrlsUI {
         rangeStart.oninput = ChapterUrlsUI.onRangeChanged;
         rangeEnd.onchange = ChapterUrlsUI.onRangeChanged;
         rangeEnd.oninput = ChapterUrlsUI.onRangeChanged;
+        ChapterUrlsUI.syncRangeNumberInputs(true);
     }
  
     /** @private */
@@ -308,6 +325,7 @@ class ChapterUrlsUI {
             row.hidden = !inRange || hiddenByChapterOnly;
         }
         ChapterUrlsUI.setChapterCount(startIndex, endIndex);
+        ChapterUrlsUI.syncRangeNumberInputs();
         ChapterUrlsUI.syncChapterGroupBrowserSelection();
     }
 
@@ -316,7 +334,7 @@ class ChapterUrlsUI {
         return selectedIndex + 1;
     }
 
-    static onRangeSelectKeyDown(event) {
+    static onRangeSelectKeyDown(event, input) {
         if (event.altKey || event.ctrlKey || event.metaKey) {
             return;
         }
@@ -327,38 +345,71 @@ class ChapterUrlsUI {
         }
 
         if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopImmediatePropagation();
             ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            if (input != null) {
+                input.value = "";
+            }
             return;
         }
 
         if (event.key === "Backspace") {
             let currentQuery = select.dataset.chapterJumpQuery ?? "";
             if (currentQuery === "") {
+                event.preventDefault();
+                event.stopImmediatePropagation();
                 return;
             }
             event.preventDefault();
+            event.stopImmediatePropagation();
             let nextQuery = currentQuery.slice(0, -1);
-            if (nextQuery === "") {
-                ChapterUrlsUI.resetRangeSelectTypeAhead(select);
-                return;
-            }
-            ChapterUrlsUI.storeRangeSelectTypeAhead(select, nextQuery);
-            ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, nextQuery);
+            ChapterUrlsUI.applyRangeSelectNumericQuery(select, input, nextQuery);
             return;
         }
 
         if (/^\d$/.test(event.key) === false) {
-            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            if (event.key.length === 1) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
             return;
         }
 
         event.preventDefault();
+        event.stopImmediatePropagation();
         let query = ChapterUrlsUI.buildRangeSelectTypeAheadQuery(select, event.key);
-        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query);
+        ChapterUrlsUI.applyRangeSelectNumericQuery(select, input, query);
+    }
+
+    static onRangeSelectKeyPress(event) {
+        if (event.altKey || event.ctrlKey || event.metaKey) {
+            return;
+        }
+        if (event.key.length !== 1) {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
     }
 
     static onRangeSelectInput() {
         ChapterUrlsUI.onRangeChanged();
+    }
+
+    static onRangeNumberInput(event, select, exactOnly = false) {
+        let input = event.currentTarget;
+        if ((input == null) || (select == null)) {
+            return;
+        }
+        let query = input.value.replace(/\D+/g, "").trim();
+        if (input.value !== query) {
+            input.value = query;
+        }
+        if (query === "") {
+            return;
+        }
+        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query, exactOnly);
     }
 
     static buildRangeSelectTypeAheadQuery(select, digit) {
@@ -386,16 +437,34 @@ class ChapterUrlsUI {
         delete select.dataset.chapterJumpTimestamp;
     }
 
-    static selectRangeOptionFromNumericQuery(select, query) {
+    static applyRangeSelectNumericQuery(select, input, query) {
+        if (query === "") {
+            ChapterUrlsUI.resetRangeSelectTypeAhead(select);
+            if (input != null) {
+                input.value = "";
+            }
+            return;
+        }
+        ChapterUrlsUI.storeRangeSelectTypeAhead(select, query);
+        if (input != null) {
+            input.focus();
+            input.value = query;
+            input.setSelectionRange(query.length, query.length);
+        }
+        ChapterUrlsUI.selectRangeOptionFromNumericQuery(select, query);
+    }
+
+    static selectRangeOptionFromNumericQuery(select, query, exactOnly = false) {
         let visibleOptions = [...select.options].filter(option => !option.hidden);
         if (visibleOptions.length === 0) {
             return;
         }
 
         let exactMatch = visibleOptions.find(option => ChapterUrlsUI.optionHasChapterNumberMatch(option, query, true));
-        let matchedOption = exactMatch ?? visibleOptions.find(option => {
-            return ChapterUrlsUI.optionHasChapterNumberMatch(option, query, false);
-        });
+        let matchedOption = exactMatch;
+        if ((matchedOption == null) && !exactOnly) {
+            matchedOption = visibleOptions.find(option => ChapterUrlsUI.optionHasChapterNumberMatch(option, query, false));
+        }
         if (matchedOption == null) {
             return;
         }
@@ -409,13 +478,26 @@ class ChapterUrlsUI {
     }
 
     static optionHasChapterNumberMatch(option, query, exact) {
-        let chapterNumbers = (option.dataset.chapterNumbers ?? "")
-            .split("|")
-            .filter(value => value !== "");
-        return chapterNumbers.some(chapterNumber => exact
+        let chapterNumber = option.dataset.chapterNumber ?? "";
+        return exact
             ? (chapterNumber === query)
-            : chapterNumber.startsWith(query)
-        );
+            : chapterNumber.startsWith(query);
+    }
+
+    static syncRangeNumberInputs(force = false) {
+        ChapterUrlsUI.getRangeSelectBindings()
+            .forEach(({ select, input }) => ChapterUrlsUI.syncRangeNumberInputFromSelect(select, input, force));
+    }
+
+    static syncRangeNumberInputFromSelect(select, input, force = false) {
+        if ((select == null) || (input == null)) {
+            return;
+        }
+        if (!force && (document.activeElement === input)) {
+            return;
+        }
+        let selectedOption = select.options[select.selectedIndex] ?? null;
+        input.value = selectedOption?.dataset.chapterNumber ?? "";
     }
 
     /** @private */
@@ -436,9 +518,30 @@ class ChapterUrlsUI {
         return document.getElementById("selectRangeStartChapter");
     }
 
+    static getRangeStartChapterNumberInput() {
+        return document.getElementById("selectRangeStartChapterNumber");
+    }
+
     /** @private */
     static getRangeEndChapterSelect() {
         return document.getElementById("selectRangeEndChapter");
+    }
+
+    static getRangeEndChapterNumberInput() {
+        return document.getElementById("selectRangeEndChapterNumber");
+    }
+
+    static getRangeSelectBindings() {
+        return [
+            {
+                select: ChapterUrlsUI.getRangeStartChapterSelect(),
+                input: ChapterUrlsUI.getRangeStartChapterNumberInput()
+            },
+            {
+                select: ChapterUrlsUI.getRangeEndChapterSelect(),
+                input: ChapterUrlsUI.getRangeEndChapterNumberInput()
+            }
+        ].filter(binding => binding.select != null);
     }
 
     /** @private */
@@ -687,22 +790,12 @@ class ChapterUrlsUI {
 
     static appendOptionToSelect(select, value, chapter, memberForTextOption) {
         let option = new Option(chapter[memberForTextOption], value);
-        option.dataset.chapterNumbers = ChapterUrlsUI.getSearchableChapterNumbers(chapter, value + 1).join("|");
+        option.dataset.chapterNumber = String(ChapterUrlsUI.getSelectableChapterNumber(chapter, value + 1));
         select.add(option);
     }
 
-    static getSearchableChapterNumbers(chapter, fallbackIndex) {
-        let numbers = [];
-        let addMatches = (text) => {
-            let matches = String(text ?? "").match(/\d+(?:\.\d+)?/g) ?? [];
-            matches.forEach((match) => numbers.push(match));
-        };
-
-        addMatches(chapter?.title);
-        addMatches(chapter?.sourceUrl);
-        numbers.push(String(fallbackIndex));
-
-        return [...new Set(numbers)];
+    static getSelectableChapterNumber(chapter, fallbackIndex) {
+        return ChapterUrlsUI.extractChapterNumber(chapter) ?? fallbackIndex;
     }
 
     /** @private */

@@ -1,9 +1,10 @@
-// simple node.js script to pack the files making up WebToEpub into single file
+// simple node.js script to pack the files making up the extension into single file
 "use strict";
 
 var fs = require("fs");
 var zipjs = require("../node_modules/@zip.js/zip.js/index.cjs");
 var DOMParser = require("@xmldom/xmldom").DOMParser;
+var { getArtifactBaseName } = require("./artifactNames");
 
 var extractFileListFromHtml = function(htmlAsString) {
     let dom = new DOMParser().parseFromString(htmlAsString, "text/html");
@@ -248,7 +249,7 @@ var packExtension = function(manifest, fileExtension) {
     let zipFileWriter = new zipjs.BlobWriter("application/epub+zip");
     let zipWriter = new zipjs.ZipWriter(zipFileWriter, {useWebWorkers: false,compressionMethod: 8, extendedTimestamp: false});
     zipWriter.add("manifest.json", new zipjs.TextReader(JSON.stringify(manifest)));
-    return packNonManifestExtensionFiles(zipWriter, "WebToEpub" + manifest.version + fileExtension);
+    return packNonManifestExtensionFiles(zipWriter, getArtifactBaseName(manifest) + manifest.version + fileExtension);
 };
 
 // pack the extensions for Chrome and firefox

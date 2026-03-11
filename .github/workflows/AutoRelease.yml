@@ -145,35 +145,33 @@ jobs:
 
         echo rename release files
         cd eslint
-        move /y WebToEpub%var_build%.xpi WebToEpub%var_build%.Firefox.zip
-        move /y WebToEpub%var_build%.zip WebToEpub%var_build%.Chrome.zip
+        move /y NetsuShelf%var_build%.xpi NetsuShelf%var_build%.Firefox.zip
+        move /y NetsuShelf%var_build%.zip NetsuShelf%var_build%.Chrome.zip
         cd ..
 
         if %normal_release% == 1 (
 
           echo Create release notes.
-          echo Download WebToEpub from your addons store: > output.txt
-          echo [chrome]^(https://chromewebstore.google.com/detail/akiljllkbielkidmammnifcnibaigelm^) >> output.txt
-          echo [firefox]^(https://addons.mozilla.org/en-US/firefox/addon/webtoepub-for-baka-tsuki/^) >> output.txt
+          echo Download NetsuShelf from your extension store. > output.txt
           echo.>> output.txt
-          echo **Full Changelog**: https://github.com/dteviot/WebToEpub/compare/%var_old_change_log_version%...%var_build% >> output.txt
+          echo **Full Changelog**: https://github.com/NetsumaInfo/NetsuShelf/compare/%var_old_change_log_version%...%var_build% >> output.txt
 
           echo create %var_build% release:
           gh release create %var_build% --latest -t "Release %var_build%" --target "ExperimentalTabMode" -F output.txt
           
           echo add files to release.
-          gh release upload %var_build% eslint/WebToEpub%var_build%.Firefox.zip
-          gh release upload %var_build% eslint/WebToEpub%var_build%.Chrome.zip
+          gh release upload %var_build% eslint/NetsuShelf%var_build%.Firefox.zip
+          gh release upload %var_build% eslint/NetsuShelf%var_build%.Chrome.zip
         ) else (
           echo Create developer-build release notes.
-          echo Latest developer build of WebToEpub with the latest fixes. > output.txt
+          echo Latest developer build of NetsuShelf with the latest fixes. > output.txt
           echo To install the Addon pick the file suitable for you, >> output.txt
-          echo * WebToEpub%var_build%.Firefox.zip for Firefox >> output.txt
-          echo * WebToEpub%var_build%.Chrome.zip for Chrome >> output.txt
+          echo * NetsuShelf%var_build%.Firefox.zip for Firefox >> output.txt
+          echo * NetsuShelf%var_build%.Chrome.zip for Chrome >> output.txt
           echo.>> output.txt
-          echo follow the "How to install from Source (for people who are not developers)" instructions at: https://github.com/dteviot/WebToEpub/tree/ExperimentalTabMode#user-content-installation>> output.txt
+          echo Installation instructions: https://github.com/NetsumaInfo/NetsuShelf/tree/ExperimentalTabMode >> output.txt
           echo.>> output.txt
-          echo **Full Changelog**: https://github.com/dteviot/WebToEpub/compare/%var_old_change_log_version%...developer-build >> output.txt
+          echo **Full Changelog**: https://github.com/NetsumaInfo/NetsuShelf/compare/%var_old_change_log_version%...developer-build >> output.txt
 
           echo delete old developer-build release:
           gh release delete developer-build --cleanup-tag
@@ -182,8 +180,8 @@ jobs:
           gh release create developer-build -p -t "Latest developer build" --target "ExperimentalTabMode" -F output.txt
           
           echo add files to release.
-          gh release upload developer-build eslint/WebToEpub%var_build%.Firefox.zip
-          gh release upload developer-build eslint/WebToEpub%var_build%.Chrome.zip
+          gh release upload developer-build eslint/NetsuShelf%var_build%.Firefox.zip
+          gh release upload developer-build eslint/NetsuShelf%var_build%.Chrome.zip
         )
       env:
           GH_TOKEN: ${{ github.token }}

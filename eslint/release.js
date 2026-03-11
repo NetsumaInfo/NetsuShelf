@@ -2,8 +2,11 @@
 
 var fs = require("fs");
 var { execSync } = require("child_process");
+var { getArtifactBaseName, readManifest } = require("./artifactNames");
 
-let version = JSON.parse(fs.readFileSync("plugin/manifest.json", "utf-8")).version;
+let manifest = readManifest("plugin/manifest.json");
+let version = manifest.version;
+let artifactBaseName = getArtifactBaseName(manifest);
 let isDraft = process.argv.includes("draft");
 let isPrerelease = process.argv.includes("pre");
 let commitHash = execSync("git rev-parse --short HEAD").toString().trim();
@@ -23,10 +26,10 @@ if (!isPrerelease) {
 
 execSync("npm run lint");
 
-let chromeName = `./eslint/WebToEpub${version}.zip`;
-let firefoxName = `./eslint/WebToEpub${version}.xpi`;
-let chromeCopyName = `./eslint/WebToEpub.chrome.${nameVersion}.zip`;
-let firefoxCopyName = `./eslint/WebToEpub.firefox.${nameVersion}.zip`;
+let chromeName = `./eslint/${artifactBaseName}${version}.zip`;
+let firefoxName = `./eslint/${artifactBaseName}${version}.xpi`;
+let chromeCopyName = `./eslint/${artifactBaseName}.chrome.${nameVersion}.zip`;
+let firefoxCopyName = `./eslint/${artifactBaseName}.firefox.${nameVersion}.zip`;
 
 fs.copyFileSync(chromeName, chromeCopyName);
 // make firefox version a zip for user to unzip, because unsigned xpis can't be installed

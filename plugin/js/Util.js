@@ -752,12 +752,13 @@ const util = (function() {
 
         let typeLabel = chapterGroupTypeLabel(group.type);
         let indexLabel = normalizeChapterGroupIndex(group.index);
+        let normalizedType = normalizeChapterGroupType(group.type);
         let baseLabel = null;
         if (!isNullOrEmpty(group.label)) {
             baseLabel = group.label.trim();
         } else if ((typeLabel != null) && (indexLabel != null)) {
             baseLabel = `${typeLabel} ${indexLabel}`;
-        } else if (typeLabel != null) {
+        } else if ((typeLabel != null) && (normalizedType !== "range")) {
             baseLabel = typeLabel;
         } else if (!isNullOrEmpty(group.title)) {
             baseLabel = group.title.trim();
@@ -826,7 +827,6 @@ const util = (function() {
                 { type: "volume", regex: /(?:^|[/_-])v(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
                 { type: "book", regex: /(?:^|[/_-])(?:book|bk)(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
                 { type: "arc", regex: /(?:^|[/_-])arc(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
-                { type: "part", regex: /(?:^|[/_-])part(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
                 { type: "season", regex: /(?:^|[/_-])season(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i },
                 { type: "tome", regex: /(?:^|[/_-])(?:tome|tom)(?:[/_-]+)([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)(?=[/_-]|$)/i }
             ]
@@ -835,7 +835,6 @@ const util = (function() {
                 { type: "volume", regex: /^\s*(?:[[<(]\s*)?v(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
                 { type: "book", regex: /^\s*(?:[[<(]\s*)?(?:book|bk)\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
                 { type: "arc", regex: /^\s*(?:[[<(]\s*)?arc\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
-                { type: "part", regex: /^\s*(?:[[<(]\s*)?part\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
                 { type: "season", regex: /^\s*(?:[[<(]\s*)?season\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i },
                 { type: "tome", regex: /^\s*(?:[[<(]\s*)?(?:tome|tom)\.?(?:\s+|[-_:]+)\s*([0-9]+(?:\.[0-9]+)?|[ivxlcdm]+)\b/i }
             ];

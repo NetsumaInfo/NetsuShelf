@@ -87,7 +87,8 @@ class ChireadsParser extends WordpressBaseParser {
         let rawTitle = (header?.textContent || "")
             .replace(/\s+/g, " ")
             .replace(/^[>\-+\s]+/, "")
-            .replace(/\[\s*\d+\s*\]\s*$/, "")
+            .replace(/\[\s*\d+\s*\]/g, "")
+            .replace(/[−+-]+\s*$/u, "")
             .trim();
         if (util.isNullOrEmpty(rawTitle)) {
             return `Section ${index + 1}`;

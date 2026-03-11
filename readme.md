@@ -15,30 +15,29 @@
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
 [![GPLv3 License][license-shield]][license-url]
 
  </div>
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/dteviot/WebToEpub">
+  <a href="https://github.com/NetsumaInfo/NetsuShelf">
     <img src="doc/logo.png" alt="Logo" width="80" height="80">
   </a>
 
-  <h3 align="center">WebToEpub</h3>
+  <h3 align="center">NetsuShelf</h3>
 
   <p align="center">
     Extension that converts Web Novels (and other web pages) into an EPUB for offline reading.
     <br />
-    <a href="https://github.com/dteviot/WebToEpub/wiki"><strong>Explore the wiki »</strong></a>
+    <a href="https://github.com/NetsumaInfo/NetsuShelf/releases"><strong>Download Releases »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/dteviot/WebToEpub/issues/new?assignees=&labels=&projects=&template=add-site-request.md&title=Please+add+site+https%3A%2F%2F%3F%3F%3F%3F">Add Site Request</a>
+    <a href="#installation">Installation</a>
     ·
-    <a href="https://github.com/dteviot/WebToEpub/issues/new?assignees=&labels=&projects=&template=bug_report.md&title=">Bug Report</a>
+    <a href="#usage">Usage</a>
     ·
-    <a href="https://github.com/dteviot/WebToEpub/issues/new?assignees=&labels=&projects=&template=feature_request.md&title=">Feature Request</a>
+    <a href="#contributing">Contributing</a>
   </p>
 </div>
 
@@ -53,8 +52,8 @@
         <li>
           <a href="#built-with">Built With</a>
           <ul>
-            <li><a href="#libraries-used-in-webtoepub">Libraries used (in WebToEpub)</a></li>
-            <li><a href="#libraries-used-by-webtoepub-build-process">Libraries used by WebToEpub build process</a></li>
+            <li><a href="#libraries-used-in-netsushelf">Libraries used in NetsuShelf</a></li>
+            <li><a href="#libraries-used-by-netsushelf-build-process">Libraries used by NetsuShelf build process</a></li>
         </li>
       </ul>
     </li>
@@ -116,11 +115,11 @@
 
 ## About The Project
 
-![WebToEpub Screen Shot][product-screenshot]
+![NetsuShelf Screen Shot][product-screenshot]
 
 &copy; 2015 David Teviotdale
 
-WebToEpub is a browser extension for Firefox and Chrome that converts web novels and other web pages into EPUB format. It supports a wide range of websites, including:
+NetsuShelf is a browser extension for Firefox and Chrome that converts web novels and other web pages into EPUB format. It is a maintained fork of WebToEpub, with the same core goal and ongoing NetsuShelf-specific packaging and UI updates. It supports a wide range of websites, including:
 
 - Baka-Tsuki.org
 - ArchiveOfOurOwn.org
@@ -594,12 +593,12 @@ WebToEpub is a browser extension for Firefox and Chrome that converts web novels
 - Node.js
 - eslint
 
-##### Libraries used (in WebToEpub)
+##### Libraries used in NetsuShelf
 
 - zip.js
 - DOMPurify
 
-#### Libraries used by WebToEpub build process
+#### Libraries used by NetsuShelf build process
 
 - @xmldom/xmldom
 - copyfiles
@@ -615,13 +614,13 @@ WebToEpub is a browser extension for Firefox and Chrome that converts web novels
 
 #### From Firefox Add-ons
 
-Open Firefox and visit [WebToEpub on Firefox Add-ons][firefox-add-ons].
+Store publication is not live yet. Until then, install the Firefox package from [GitHub Releases][github-releases].
 
 #### From Source (Firefox)
 
 The easiest set of steps is using Firefox.
 
-1. Download prebuilt Firefox version of extension from https://github.com/dteviot/WebToEpub/releases/tag/developer-build.
+1. Download the latest `NetsuShelf.firefox.*.zip` asset from [GitHub Releases][github-releases].
 2. Open Firefox and type "about:debugging#/runtime/this-firefox" into the URL bar.
 3. Click "Load Temporary Add-on".
 4. Click on the zip file you downloaded in step 1.
@@ -631,11 +630,11 @@ The easiest set of steps is using Firefox.
 
 #### From Chrome Web Store
 
-Open Chrome (or any Chromium-based browser like Edge, Opera, etc.) and go to [WebToEpub on Chrome Web Store][chrome-web-store].
+Store publication is not live yet. Until then, install the Chromium package from [GitHub Releases][github-releases].
 
 #### From Source (Chrome)
 
-1. Download prebuilt Chrome version of extension from https://github.com/dteviot/WebToEpub/releases/tag/developer-build.
+1. Download the latest `NetsuShelf.chrome.*.zip` asset from [GitHub Releases][github-releases].
 2. Unpack zip file
 3. Open Chrome and type "chrome://extensions" into the browser.
 4. Make sure "Developer Mode" at the top of the page is checked.
@@ -646,24 +645,24 @@ Open Chrome (or any Chromium-based browser like Edge, Opera, etc.) and go to [We
 
 #### From Firefox Add-ons Store
 
-Open Firefox and visit [WebToEpub on Firefox Add-ons][firefox-add-ons].
+Store publication is not live yet. Until then, install the Firefox package from [GitHub Releases][github-releases].
 
 #### From Source (Firefox Nightly for Developers)
 
-1. Download prebuilt Firefox version of extension from https://github.com/dteviot/WebToEpub/releases/tag/developer-build.
+1. Download the latest `NetsuShelf.firefox.*.zip` asset from [GitHub Releases][github-releases].
 2. Open the site "about:config"
 3. Search "xpinstall.signatures.required" and set the value to false.
 4. Open Settings and scoll down to "About Firefox Nightly"
 5. Tap the Firefox Nightly icon (blue fox) 6 times to enable Debug menu
 6. Open Settings -> Advanced -> Install extension from file
-4. Select the zip file you downloaded in step 1.
+7. Select the zip file you downloaded in step 1.
 
 ### From Source (Developers)
 
 1. Clone this repo.
 
    ```sh
-    git clone https://github.com/dteviot/WebToEpub.git
+    git clone https://github.com/NetsumaInfo/NetsuShelf.git
    ```
 
 2. Build extension.
@@ -672,8 +671,8 @@ Open Firefox and visit [WebToEpub on Firefox Add-ons][firefox-add-ons].
    - Run `npm install` to install dependencies
    - Run `npm run lint` to build plugin and lint
    - This will produce 3 files in the eslint directory.
-     - WebToEpub0.0.0.x.xpi (Firefox version of plug-in)
-     - WebToEpub0.0.0.x.zip (Chrome version of plug-in)
+     - NetsuShelf0.0.0.x.xpi (Firefox version of plug-in)
+     - NetsuShelf0.0.0.x.zip (Chrome version of plug-in)
      - packed.js (concatenated JS for linting - don't edit this file directly)
    - Lint tests are OK if output ends with `Wrote Zip to disk; Done in XXXs.`
    - To auto-fix lint errors run `npm run lint:fix`
@@ -691,7 +690,7 @@ See [notes](#notes) for more information.
 ### How to use with Baka-Tsuki:
 
 - Browse to a Baka-Tsuki web page that has the full text of a story.
-- Click on the WebToEpub icon on top right of the window.
+- Click on the NetsuShelf icon on top right of the window.
 - Check story details are correct.
 - Select image to use for cover.
 - Click the "Pack EPUB" button.
@@ -700,18 +699,20 @@ See [notes](#notes) for more information.
 ### How to use with Archive of Our Own:
 
 - Browse to first chapter of story you want.
-- Click on the WebToEpub icon on top right of the window.
+- Click on the NetsuShelf icon on top right of the window.
 - Check story details are correct.
 - Click the "Pack EPUB" button.
 - Wait for progress bar to finish (indicating the additional chapters are being downloaded) and the generated EPUB to be placed in your downloads directory.
 
 ### How to use for site that there is no specific parser for:
 
-See: https://github.com/dteviot/WebToEpub/wiki/FAQ#how-to-convert-a-new-site-using-the-default-parser
+Documentation for the generic parser is still hosted in the upstream wiki:
+
+- https://github.com/dteviot/WebToEpub/wiki/FAQ#how-to-convert-a-new-site-using-the-default-parser
 
 ### How to create Parsers for new sites
 
-For details on how to extend, see the following
+For parser internals and extension notes, the upstream project wiki is still the current reference:
 
 - https://github.com/dteviot/WebToEpub/wiki/FAQ#how-to-write-a-new-parser
 - http://www.codeproject.com/Articles/1060680/Web-to-EPUB-Extension-for-Chrome.
@@ -726,10 +727,7 @@ For details on how to extend, see the following
 >
 > Read [CONTRIBUTING.md](/CONTRIBUTING.md) first.
 
-Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
-
-If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
-Don't forget to give the project a star! Thanks again!
+If you want to improve NetsuShelf, fork the repo and open a pull request against this repository.
 
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
@@ -739,8 +737,8 @@ Don't forget to give the project a star! Thanks again!
 
 ### Top contributors
 
-<a href="https://github.com/dteviot/WebToEpub/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=dteviot/WebToEpub" alt="contrib.rocks image" />
+<a href="https://github.com/NetsumaInfo/NetsuShelf/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=NetsumaInfo/NetsuShelf" alt="contrib.rocks image" />
 </a>
 
 ### Credits
@@ -825,7 +823,7 @@ Don't forget to give the project a star! Thanks again!
 
 Licensed under GPLv3. See [LICENSE][license-url] for more information.
 
-WebToEpub uses the following libraries:
+NetsuShelf uses the following libraries:
 
 - zip.js library v2.7.57: https://github.com/gildas-lormeau/zip.js, licensed under BSD 3-Clause.
 - quint: http://qunitjs.com/, licensed under MIT license.
@@ -836,9 +834,9 @@ WebToEpub uses the following libraries:
 
 ## Contact
 
-David Teviotdale - [@dteviot](https://github.com/dteviot)
+Project Link: [https://github.com/NetsumaInfo/NetsuShelf](https://github.com/NetsumaInfo/NetsuShelf)
 
-Project Link: [https://github.com/dteviot/WebToEpub](https://github.com/dteviot/WebToEpub)
+Original upstream project: [https://github.com/dteviot/WebToEpub](https://github.com/dteviot/WebToEpub)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -891,14 +889,12 @@ Project Link: [https://github.com/dteviot/WebToEpub](https://github.com/dteviot/
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 
-[contributors-shield]: https://img.shields.io/github/contributors/dteviot/WebToEpub.svg?style=for-the-badge
-[contributors-url]: https://github.com/dteviot/WebToEpub/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/dteviot/WebToEpub.svg?style=for-the-badge
-[forks-url]: https://github.com/dteviot/WebToEpub/network/members
-[stars-shield]: https://img.shields.io/github/stars/dteviot/WebToEpub.svg?style=for-the-badge
-[stars-url]: https://github.com/dteviot/WebToEpub/stargazers
-[issues-shield]: https://img.shields.io/github/issues/dteviot/WebToEpub.svg?style=for-the-badge
-[issues-url]: https://github.com/dteviot/WebToEpub/issues
+[contributors-shield]: https://img.shields.io/github/contributors/NetsumaInfo/NetsuShelf.svg?style=for-the-badge
+[contributors-url]: https://github.com/NetsumaInfo/NetsuShelf/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/NetsumaInfo/NetsuShelf.svg?style=for-the-badge
+[forks-url]: https://github.com/NetsumaInfo/NetsuShelf/network/members
+[stars-shield]: https://img.shields.io/github/stars/NetsumaInfo/NetsuShelf.svg?style=for-the-badge
+[stars-url]: https://github.com/NetsumaInfo/NetsuShelf/stargazers
 
 <!-- GitHub can't automatically ID the current license so let's hard code it -->
 
@@ -908,5 +904,4 @@ Project Link: [https://github.com/dteviot/WebToEpub](https://github.com/dteviot/
 
 <!-- Store Links -->
 
-[firefox-add-ons]: https://addons.mozilla.org/en-US/firefox/addon/webtoepub-for-baka-tsuki
-[chrome-web-store]: https://chrome.google.com/webstore/detail/webtoepub/akiljllkbielkidmammnifcnibaigelm
+[github-releases]: https://github.com/NetsumaInfo/NetsuShelf/releases

@@ -9,14 +9,134 @@ parserFactory.register("royalroad.com", () => new RoyalRoadParser());
 class RoyalRoadParser extends Parser {
     constructor() {
         super();
+        this.metaInfoDom = null;
     }
 
     async getChapterUrls(dom) {
-        // Page in browser has links reduced to "Number of links to show"
-        // Fetch new page to get all chapter links.
-        let tocHtml = (await HttpClient.wrapFetch(dom.baseURI)).responseXML;
-        let table = tocHtml.querySelector("table#chapters");
-        return util.hyperlinksToChapterList(table);
+        let chapters = this.getChapterUrlsFromDom(dom);
+        let chapterListUrl = this.findChapterListUrl(dom);
+        if (chapterListUrl == null) {
+            return chapters;
+        }
+
+        try {
+            let tocHtml = (await HttpClient.wrapFetch(chapterListUrl)).responseXML;
+            let fetchedChapters = this.getChapterUrlsFromDom(tocHtml);
+            return (fetchedChapters.length > chapters.length) ? fetchedChapters : chapters;
+        } catch {
+            return chapters;
+        }
+    }
+
+    getChapterUrlsFromDom(dom) {
+        let chapterRows = [...dom.querySelectorAll("tr.chapter-row")];
+        if (0 < chapterRows.length) {
+            return chapterRows
+                .map((row, index) => this.chapterRowToChapter(row, index))
+                .filter((chapter) => chapter != null);
+        }
+
+        let table = dom.querySelector("table#chapters, #chapters");
+        return util.hyperlinksToChapterList(table)
+            .map((chapter, index) => this.normalizeChapter(chapter, index));
+    }
+
+    chapterRowToChapter(row, index) {
+        let titleLink = row.querySelector("td:first-child a[href]");
+        if (titleLink == null) {
+            return null;
+        }
+
+        return this.normalizeChapter({
+            sourceUrl: titleLink.href,
+            title: titleLink.textContent.trim(),
+            chapterNumber: index + 1,
+            newArc: null
+        }, index);
+    }
+
+    normalizeChapter(chapter, index) {
+        if (chapter == null) {
+            return null;
+        }
+
+        let chapterNumber = index + 1;
+        let title = chapter.title ?? "";
+        if (util.extractChapterNumber({
+            title,
+            sourceUrl: chapter.sourceUrl
+        }) == null) {
+            title = `${chapterNumber}. ${title}`;
+        }
+
+        return {
+            ...chapter,
+            title,
+            chapterNumber
+        };
+    }
+
+    findChapterListUrl(dom) {
+        let pageUrl = dom?.baseURI ?? "";
+        if (this.isFictionUrl(pageUrl)) {
+            return pageUrl;
+        }
+
+        let fictionLink = [...dom.querySelectorAll("a[href]")]
+            .map((link) => link.href)
+            .find((url) => this.isFictionUrl(url));
+        return fictionLink ?? null;
+    }
+
+    isFictionUrl(url) {
+        if (!util.isUrl(url)) {
+            return false;
+        }
+        return /^\/fiction\/\d+\/[^/]+\/?$/i.test(new URL(url).pathname);
+    }
+
+    async loadEpubMetaInfo(dom) {
+        this.metaInfoDom = dom;
+        let chapterListUrl = this.findChapterListUrl(dom);
+        if ((chapterListUrl == null) || this.isFictionUrl(dom?.baseURI ?? "")) {
+            return;
+        }
+
+        try {
+            this.metaInfoDom = (await HttpClient.wrapFetch(chapterListUrl)).responseXML;
+        } catch {
+            this.metaInfoDom = dom;
+        }
+    }
+
+    getMetaInfoDom(dom) {
+        return this.metaInfoDom ?? dom;
+    }
+
+    findStoryTitleElement(dom) {
+        return dom?.querySelector("div.fic-header div.col h1")
+            ?? dom?.querySelector("div.fic-header a[href*='/fiction/'] > h2");
+    }
+
+    shouldAutoExpandChapterList(url, firstPageDom, chapters = []) {
+        if (this.isFictionUrl(url)) {
+            return false;
+        }
+        return super.shouldAutoExpandChapterList(url, firstPageDom, chapters);
+    }
+
+    ensureCurrentPageIncludedInChapterList(url, dom, chapters = []) {
+        if (this.isFictionUrl(url)) {
+            return chapters;
+        }
+        return super.ensureCurrentPageIncludedInChapterList(url, dom, chapters);
+    }
+
+    addFirstPageUrlToWebPages(url, firstPageDom, webPages) {
+        if (this.isFictionUrl(url)) {
+            return webPages;
+        }
+        return super.addFirstPageUrlToWebPages(url, firstPageDom, webPages);
     }
 
     // find the node(s) holding the story content
@@ -110,21 +230,30 @@ class RoyalRoadParser extends Parser {
     }
 
     extractTitleImpl(dom) {
-        return dom.querySelector("div.fic-header div.col h1");
+        let metaInfoDom = this.getMetaInfoDom(dom);
+        return this.findStoryTitleElement(metaInfoDom)
+            ?? this.findStoryTitleElement(dom);
     }
 
     extractAuthor(dom) {
-        let author = dom.querySelector("div.fic-header h4 span a");
+        let metaInfoDom = this.getMetaInfoDom(dom);
+        let author = metaInfoDom.querySelector("div.fic-header h4 span a")
+            ?? metaInfoDom.querySelector("div.fic-header h3 a[href*='/profile/']")
+            ?? dom.querySelector("div.fic-header h4 span a")
+            ?? dom.querySelector("div.fic-header h3 a[href*='/profile/']");
         return author?.textContent?.trim() ?? super.extractAuthor(dom);
     }
 
     extractSubject(dom) {
-        let tags = ([...dom.querySelectorAll("div.fiction-info span.tags .label")]);
+        let metaInfoDom = this.getMetaInfoDom(dom);
+        let tags = ([...metaInfoDom.querySelectorAll("div.fiction-info span.tags .label")]);
         return tags.map(e => e.textContent.trim()).join(", ");
     }
 
     extractDescription(dom) {
-        return dom.querySelector("div.fiction-info div.description").textContent.trim();
+        let metaInfoDom = this.getMetaInfoDom(dom);
+        return metaInfoDom.querySelector("div.fiction-info div.description")?.textContent?.trim()
+            ?? super.extractDescription(dom);
     }
 
     findChapterTitle(dom) {
@@ -142,7 +271,8 @@ class RoyalRoadParser extends Parser {
     }
 
     findCoverImageUrl(dom) {
-        return dom.querySelector("img.thumbnail")?.src ?? null;
+        let metaInfoDom = this.getMetaInfoDom(dom);
+        return metaInfoDom.querySelector("img.thumbnail, img[data-type='cover']")?.src ?? null;
     }
 
     removeImgTagsWithNoSrc(webPageDom) {

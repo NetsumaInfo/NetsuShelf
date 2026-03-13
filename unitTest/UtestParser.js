@@ -182,6 +182,49 @@ QUnit.test("addTitleToContent-text", function (assert) {
     assert.equal(doc.body.innerHTML, "<h1>Title2</h1>");
  });
 
+QUnit.test("updateChapterTitleFromDom replaces generic title and refreshes UI", function (assert) {
+    let fixture = document.createElement("div");
+    fixture.innerHTML = "" +
+        "<input id=\"showChapterUrlsCheckbox\" type=\"checkbox\">" +
+        "<table id=\"chapterUrlsTable\"></table>" +
+        "<select id=\"selectRangeStartChapter\"></select>" +
+        "<select id=\"selectRangeEndChapter\"></select>";
+    document.body.appendChild(fixture);
+
+    let table = document.getElementById("chapterUrlsTable");
+    let row = document.createElement("tr");
+    let titleCell = document.createElement("td");
+    let titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.value = "Chapter 7";
+    titleCell.appendChild(titleInput);
+    row.appendChild(titleCell);
+    table.appendChild(row);
+
+    document.getElementById("selectRangeStartChapter").add(new Option("Chapter 7", 0));
+    document.getElementById("selectRangeEndChapter").add(new Option("Chapter 7", 0));
+
+    let webPage = {
+        sourceUrl: "https://example.com/chapter-7",
+        title: "Chapter 7",
+        row: row
+    };
+
+    let parser = new Parser();
+    parser.findChapterTitle = () => "Chapter 7: Awakening";
+
+    let changed = parser.updateChapterTitleFromDom(webPage, document.implementation.createHTMLDocument(""));
+
+    assert.ok(changed);
+    assert.equal(webPage.title, "Chapter 7: Awakening");
+    assert.equal(titleInput.value, "Chapter 7: Awakening");
+    assert.equal(document.getElementById("selectRangeStartChapter").options[0].text, "Chapter 7: Awakening");
+    assert.equal(document.getElementById("selectRangeEndChapter").options[0].text, "Chapter 7: Awakening");
+    assert.equal(document.getElementById("selectRangeStartChapter").options[0].dataset.chapterNumber, "7");
+
+    fixture.remove();
+});
+
  QUnit.test("extractLanguage", function (assert) {
     let dom = new DOMParser().parseFromString(
         "<html lang=\"cn-Hans-CN\">"+
@@ -217,3 +260,32 @@ QUnit.test("addTitleToContent-text", function (assert) {
     let actual = dom.body.innerHTML;
     assert.equal(actual, "<p>a</p><hr><p>b</p><hr>");
  });
+
+QUnit.test("shouldAutoExpandChapterList ignores pagination when index already has many chapters", function (assert) {
+    let dom = new DOMParser().parseFromString(
+        "<html><head><base href=\"https://example.com/story\"></head>" +
+        "<body><a href=\"https://example.com/story?reviews=2\">Next</a></body></html>",
+        "text/html"
+    );
+    let chapters = [
+        { sourceUrl: "https://example.com/story/chapter-1", title: "1. One" },
+        { sourceUrl: "https://example.com/story/chapter-2", title: "2. Two" },
+        { sourceUrl: "https://example.com/story/chapter-3", title: "3. Three" },
+        { sourceUrl: "https://example.com/story/chapter-4", title: "4. Four" }
+    ];
+
+    assert.equal(new Parser().shouldAutoExpandChapterList("https://example.com/story", dom, chapters), false);
+});
+
+QUnit.test("shouldAutoExpandChapterList expands small chapter lists with adjacent chapter links", function (assert) {
+    let dom = new DOMParser().parseFromString(
+        "<html><head><base href=\"https://example.com/story/chapter-1\"></head>" +
+        "<body><a href=\"https://example.com/story/chapter-2\">Next Chapter</a></body></html>",
+        "text/html"
+    );
+    let chapters = [
+        { sourceUrl: "https://example.com/story/chapter-1", title: "1. One" }
+    ];
+
+    assert.equal(new Parser().shouldAutoExpandChapterList("https://example.com/story/chapter-1", dom, chapters), true);
+});

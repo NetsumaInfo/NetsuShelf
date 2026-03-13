@@ -34,14 +34,16 @@ var main = (function() {
         "wuxiaworld.com",
         "kakuyomu.jp",
         "syosetu.com",
-        "baka-tsuki.org"
+        "baka-tsuki.org",
+        "royalroad.com"
     ];
     let referenceSiteLabels = new Map([
         ["webnovel.com", "Webnovel"],
         ["wuxiaworld.com", "Wuxiaworld"],
         ["kakuyomu.jp", "Kakuyomu"],
         ["syosetu.com", "Syosetu"],
-        ["baka-tsuki.org", "Baka-Tsuki"]
+        ["baka-tsuki.org", "Baka-Tsuki"],
+        ["royalroad.com", "Royal Road"]
     ]);
 
     function cancelActionLabel() {
@@ -546,6 +548,24 @@ var main = (function() {
         return null;
     }
 
+    async function searchRoyalRoadReferenceSource(searchTerms) {
+        for (let searchTerm of searchTerms) {
+            let searchUrl = `https://www.royalroad.com/fictions/search?title=${encodeURIComponent(searchTerm)}`;
+            let dom = await fetchReferenceHtml(searchUrl);
+            if (isInteractiveChallengeDom(dom)) {
+                throw new Error("automatic search is blocked by an interactive browser challenge");
+            }
+            let bestMatch = pickBestReferenceMatch(
+                searchTerms,
+                collectReferenceMatchesFromAnchors(dom, searchUrl, /\/fiction\/\d+\/[^/]+\/?$/i)
+            );
+            if (bestMatch != null) {
+                return bestMatch;
+            }
+        }
+        return null;
+    }
+
     async function searchReferenceGroupingSourceByHost(host, searchTerms) {
         switch (host) {
             case "webnovel.com":
@@ -558,6 +578,8 @@ var main = (function() {
                 return searchSyosetuReferenceSource(searchTerms);
             case "baka-tsuki.org":
                 return searchBakaTsukiReferenceSource(searchTerms);
+            case "royalroad.com":
+                return searchRoyalRoadReferenceSource(searchTerms);
             default:
                 throw new Error("automatic lookup is not available for this site");
         }
@@ -579,7 +601,7 @@ var main = (function() {
         return referenceGroupingSources.find(candidate => candidate.id === sourceId) ?? null;
     }
 
-    function buildReferenceGroupingProgressMessage(host, processedCount, totalCount) {
+    function buildReferenceGroupingProgressMessage(label, processedCount, totalCount, action = "Searching") {
         let parts = [];
         if (referenceGroupingSources.length > 0) {
             parts.push(`Loaded ${formatReferenceSiteCount(referenceGroupingSources.length)}.`);
@@ -588,7 +610,7 @@ var main = (function() {
                 parts.push(`Active source: ${activeSource.storyLabel}.`);
             }
         }
-        parts.push(`Searching ${processedCount}/${totalCount}: ${referenceSiteLabel(host)}...`);
+        parts.push(`${action} ${processedCount}/${totalCount}: ${label}...`);
         return parts.join(" ");
     }
 
@@ -796,6 +818,7 @@ var main = (function() {
             setReferenceGroupingStatus("No usable story title was found for automatic reference lookup.", "error");
             return;
         }
+        let searchableHosts = selectedHosts;
 
         if (options.automatic === true && !options.force && !shouldAutoDetectReferenceGroups()) {
             return;
@@ -805,15 +828,43 @@ var main = (function() {
         referenceGroupingSourceSequence = 0;
         parser.clearReferenceChapterGroups();
         updateReferenceGroupingSourceSelect("current");
-        setReferenceGroupingStatus(buildReferenceGroupingProgressMessage(selectedHosts[0], 1, selectedHosts.length), "info");
+        let totalSourceCount = searchableHosts.length;
+        let initialTargetLabel = referenceSiteLabel(searchableHosts[0]);
+        let initialAction = "Searching";
+        setReferenceGroupingStatus(buildReferenceGroupingProgressMessage(initialTargetLabel, 1, totalSourceCount, initialAction), "info");
 
         let sources = [];
         let failures = [];
         let hasAppliedFirstSource = false;
+        let sourceUrls = new Set();
 
-        for (let [index, host] of selectedHosts.entries()) {
+        let addSource = async function(source) {
+            let sourceKey = util.normalizeUrlForCompare(source.url);
+            if (sourceUrls.has(sourceKey)) {
+                return;
+            }
+            sourceUrls.add(sourceKey);
+            sources.push(source);
+            referenceGroupingSources = [...sources];
+            let selectedValue = getReferenceGroupingSourceSelect()?.value ?? "current";
+            if (!hasAppliedFirstSource) {
+                updateReferenceGroupingSourceSelect(source.id);
+                await applyReferenceGroupingSource(source.id, { suppressStatus: true });
+                hasAppliedFirstSource = true;
+            } else {
+                updateReferenceGroupingSourceSelect(selectedValue);
+            }
+        };
+
+        for (let [index, host] of searchableHosts.entries()) {
+            let processedCount = index + 1;
             setReferenceGroupingStatus(
-                buildReferenceGroupingProgressMessage(host, index + 1, selectedHosts.length),
+                buildReferenceGroupingProgressMessage(
+                    referenceSiteLabel(host),
+                    processedCount,
+                    totalSourceCount,
+                    "Searching"
+                ),
                 sources.length === 0 ? "info" : "success"
             );
             try {
@@ -835,16 +886,7 @@ var main = (function() {
                     failures.push(`${referenceSiteLabel(host)}: no usable chapter groups found`);
                     continue;
                 }
-                sources.push(source);
-                referenceGroupingSources = [...sources];
-                let selectedValue = getReferenceGroupingSourceSelect()?.value ?? "current";
-                if (!hasAppliedFirstSource) {
-                    updateReferenceGroupingSourceSelect(source.id);
-                    await applyReferenceGroupingSource(source.id, { suppressStatus: true });
-                    hasAppliedFirstSource = true;
-                } else {
-                    updateReferenceGroupingSourceSelect(selectedValue);
-                }
+                await addSource(source);
             } catch (error) {
                 if (analysisSequence !== referenceGroupingAnalysisSequence) {
                     return;
@@ -3566,24 +3608,23 @@ var main = (function() {
             decreasePackSizeButton.addEventListener("click", () => adjustPackSize(-1));
         }
         document.getElementById("downloadFormatSelect").addEventListener("change", updateDownloadFormatUi);
-        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
-            checkbox.onchange = () => {
-                syncReferenceSiteChipVisualState();
-                clearReferenceGroupingSources({
-                    preserveStatus: true,
-                    preserveSiteSelection: true
-                });
-                scheduleAutomaticReferenceGroupingAnalysis({ force: true });
-            };
-        });
-        getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
-        document.getElementById("titleInput").addEventListener("change", () => {
-            syncFileNameWithTitle();
+        let onReferenceSourceCriteriaChanged = () => {
             clearReferenceGroupingSources({
                 preserveStatus: true,
                 preserveSiteSelection: true
             });
             scheduleAutomaticReferenceGroupingAnalysis({ force: true });
+        };
+        getReferenceSitePresetCheckboxes().forEach((checkbox) => {
+            checkbox.onchange = () => {
+                syncReferenceSiteChipVisualState();
+                onReferenceSourceCriteriaChanged();
+            };
+        });
+        getReferenceGroupingSourceSelect().onchange = (event) => applyReferenceGroupingSource(event.target.value);
+        document.getElementById("titleInput").addEventListener("change", () => {
+            syncFileNameWithTitle();
+            onReferenceSourceCriteriaChanged();
         });
         document.getElementById("diagnosticsCheckBoxInput").onclick = onDiagnosticsClick;
         document.getElementById("reloadButton").onclick = populateControls;

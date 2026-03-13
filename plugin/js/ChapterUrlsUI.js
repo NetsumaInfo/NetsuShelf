@@ -128,6 +128,10 @@ class ChapterUrlsUI {
         let rangeStart = ChapterUrlsUI.getRangeStartChapterSelect();
         let rangeEnd = ChapterUrlsUI.getRangeEndChapterSelect();
         let memberForTextOption = ChapterUrlsUI.textToShowInRange();
+        let rowsFragment = document.createDocumentFragment();
+        let rangeStartFragment = document.createDocumentFragment();
+        let rangeEndFragment = document.createDocumentFragment();
+        let maxTitleLength = 0;
         chapters.forEach((chapter) => {
             let row = document.createElement("tr");
             ChapterUrlsUI.appendCheckBoxToRow(row, chapter);
@@ -135,14 +139,18 @@ class ChapterUrlsUI {
             chapter.row = row;
             row.webPage = chapter;
             ChapterUrlsUI.appendColumnDataToRow(row, chapter.sourceUrl);
-            linksTable.appendChild(row);
-            ChapterUrlsUI.appendOptionToSelect(rangeStart, index, chapter, memberForTextOption);
-            ChapterUrlsUI.appendOptionToSelect(rangeEnd, index, chapter, memberForTextOption);
+            rowsFragment.appendChild(row);
+            rangeStartFragment.appendChild(ChapterUrlsUI.createRangeOption(index, chapter, memberForTextOption));
+            rangeEndFragment.appendChild(ChapterUrlsUI.createRangeOption(index, chapter, memberForTextOption));
+            maxTitleLength = Math.max(maxTitleLength, chapter.title?.length ?? 0);
             ++index;
         });
+        linksTable.appendChild(rowsFragment);
+        rangeStart.appendChild(rangeStartFragment);
+        rangeEnd.appendChild(rangeEndFragment);
         ChapterUrlsUI.setRangeOptionsToFirstAndLastChapters();
         this.showHideChapterUrlsColumn();
-        ChapterUrlsUI.resizeTitleColumnToFit(linksTable);
+        ChapterUrlsUI.setTitleColumnInputSize(linksTable, maxTitleLength);
         this.applyChapterOnlyFilter(chapters);
         this.refreshChapterGroupControls(chapters);
     }
@@ -215,6 +223,7 @@ class ChapterUrlsUI {
 
     static clearChapterUrlsTable() {
         util.removeElements(ChapterUrlsUI.getTableRowsWithChapters());
+        delete ChapterUrlsUI.getChapterUrlsTable().dataset.titleInputSize;
         util.removeElements([...ChapterUrlsUI.getRangeStartChapterSelect().options]);
         util.removeElements([...ChapterUrlsUI.getRangeEndChapterSelect().options]);
         ChapterUrlsUI.getRangeSelectBindings().forEach(({ input, select }) => {
@@ -246,6 +255,7 @@ class ChapterUrlsUI {
         }
         let chapterGroupBrowser = ChapterUrlsUI.getChapterGroupBrowser();
         if (chapterGroupBrowser != null) {
+            chapterGroupBrowser.dataset.activeGroupId = "";
             util.removeElements([...chapterGroupBrowser.children]);
         }
         let chapterGroupBrowserSection = ChapterUrlsUI.getChapterGroupBrowserSection();
@@ -794,10 +804,48 @@ class ChapterUrlsUI {
         row.appendChild(col);
     }
 
-    static appendOptionToSelect(select, value, chapter, memberForTextOption) {
+    static createRangeOption(value, chapter, memberForTextOption) {
         let option = new Option(chapter[memberForTextOption], value);
         option.dataset.chapterNumber = String(ChapterUrlsUI.getSelectableChapterNumber(chapter, value + 1));
-        select.add(option);
+        return option;
+    }
+
+    static refreshChapterTitle(chapter) {
+        if ((chapter == null) || (chapter.row == null)) {
+            return;
+        }
+
+        let titleInput = chapter.row.querySelector("input[type='text']");
+        if ((titleInput != null) && (document.activeElement !== titleInput)) {
+            titleInput.value = chapter.title ?? "";
+        }
+
+        let chapterRows = ChapterUrlsUI.getTableRowsWithChapters();
+        let chapterIndex = chapterRows.indexOf(chapter.row);
+        if (chapterIndex === -1) {
+            return;
+        }
+
+        let memberForTextOption = ChapterUrlsUI.textToShowInRange();
+        ChapterUrlsUI.getRangeSelectBindings().forEach(({ select }) => {
+            let option = select?.options?.[chapterIndex];
+            if (option == null) {
+                return;
+            }
+            option.text = chapter[memberForTextOption] ?? "";
+            option.dataset.chapterNumber = String(ChapterUrlsUI.getSelectableChapterNumber(chapter, chapterIndex + 1));
+        });
+
+        if (chapter.groupBrowserItemTitleElement != null) {
+            let chapterNumber = ChapterUrlsUI.extractChapterNumber(chapter);
+            chapter.groupBrowserItemTitleElement.textContent =
+                ChapterUrlsUI.formatChapterGroupItemTitle(chapter, chapterNumber);
+        }
+
+        let linksTable = ChapterUrlsUI.getChapterUrlsTable();
+        if (linksTable != null) {
+            ChapterUrlsUI.expandTitleColumnInputSize(linksTable, chapter.title?.length ?? 0);
+        }
     }
 
     static getSelectableChapterNumber(chapter, fallbackIndex) {
@@ -806,11 +854,34 @@ class ChapterUrlsUI {
 
     /** @private */
     static resizeTitleColumnToFit(linksTable) {
+        if (linksTable == null) {
+            return;
+        }
         let inputs = [...linksTable.querySelectorAll("input[type='text']")];
         let width = inputs.reduce((acc, element) => Math.max(acc, element.value.length), 0);
-        if (0 < width) {
-            inputs.forEach(i => i.size = width); 
+        ChapterUrlsUI.setTitleColumnInputSize(linksTable, width);
+    }
+
+    static setTitleColumnInputSize(linksTable, width) {
+        if (linksTable == null) {
+            return;
         }
+        let size = Math.max(1, width);
+        linksTable.dataset.titleInputSize = String(size);
+        linksTable.querySelectorAll("input[type='text']").forEach((input) => {
+            input.size = size;
+        });
+    }
+
+    static expandTitleColumnInputSize(linksTable, width) {
+        if (linksTable == null) {
+            return;
+        }
+        let currentSize = parseInt(linksTable.dataset.titleInputSize ?? "0", 10);
+        if (width <= currentSize) {
+            return;
+        }
+        ChapterUrlsUI.setTitleColumnInputSize(linksTable, width);
     }
 
     /** 
@@ -1184,6 +1255,26 @@ class ChapterUrlsUI {
                 : "No visible groups are available right now.");
     }
 
+    ensureChapterGroupCardRendered(card) {
+        if ((card == null) || (card.dataset.rendered === "true")) {
+            return;
+        }
+
+        let group = card.chapterGroup;
+        let body = card.querySelector(".chapterGroupCardBody");
+        if ((group == null) || (body == null)) {
+            return;
+        }
+
+        let chapterList = document.createElement("div");
+        chapterList.className = "chapterGroupCardList";
+        let fragment = document.createDocumentFragment();
+        group.chapters.forEach((chapter) => fragment.appendChild(this.createChapterGroupBrowserItem(chapter)));
+        chapterList.appendChild(fragment);
+        body.replaceChildren(chapterList);
+        card.dataset.rendered = "true";
+    }
+
     renderChapterGroupBrowser(groups) {
         let browserSection = ChapterUrlsUI.getChapterGroupBrowserSection();
         let browser = ChapterUrlsUI.getChapterGroupBrowser();
@@ -1199,13 +1290,22 @@ class ChapterUrlsUI {
         }
 
         let collapseByDefault = ChapterUrlsUI.shouldCollapseGroupsByDefault();
+        let fragment = document.createDocumentFragment();
         groups.forEach((group, index) => {
             let card = document.createElement("details");
             card.className = "chapterGroupCard";
             card.dataset.groupId = group.id;
             card.dataset.search = ChapterUrlsUI.groupSearchText(group);
             card.chapterGroup = group;
-            card.open = !collapseByDefault || (index === 0);
+            card.dataset.rendered = "false";
+            card.open = !collapseByDefault && (index === 0);
+            card.addEventListener("toggle", () => {
+                if (card.open) {
+                    this.ensureChapterGroupCardRendered(card);
+                    this.setCurrentChapterGroup(group.id, false);
+                }
+                ChapterUrlsUI.syncChapterGroupBrowserSelection();
+            });
 
             let summary = document.createElement("summary");
             summary.className = "chapterGroupCardSummary";
@@ -1244,15 +1344,14 @@ class ChapterUrlsUI {
             let body = document.createElement("div");
             body.className = "chapterGroupCardBody";
 
-            let chapterList = document.createElement("div");
-            chapterList.className = "chapterGroupCardList";
-            group.chapters.forEach((chapter) => chapterList.appendChild(this.createChapterGroupBrowserItem(chapter)));
-            body.appendChild(chapterList);
-
             card.appendChild(summary);
             card.appendChild(body);
-            browser.appendChild(card);
+            if (card.open) {
+                this.ensureChapterGroupCardRendered(card);
+            }
+            fragment.appendChild(card);
         });
+        browser.appendChild(fragment);
     }
 
     createChapterGroupBrowserItem(chapter) {
@@ -1295,6 +1394,7 @@ class ChapterUrlsUI {
         let title = document.createElement("span");
         title.className = "chapterGroupChapterTitle";
         title.textContent = ChapterUrlsUI.formatChapterGroupItemTitle(chapter, chapterNumber);
+        chapter.groupBrowserItemTitleElement = title;
         details.appendChild(title);
 
         label.appendChild(details);
@@ -1302,6 +1402,11 @@ class ChapterUrlsUI {
     }
 
     setCurrentChapterGroup(groupId, shouldOpen) {
+        let browser = ChapterUrlsUI.getChapterGroupBrowser();
+        if (browser != null) {
+            browser.dataset.activeGroupId = util.isNullOrEmpty(groupId) ? "" : groupId;
+        }
+
         if (util.isNullOrEmpty(groupId)) {
             ChapterUrlsUI.syncChapterGroupBrowserSelection();
             return;
@@ -1313,10 +1418,10 @@ class ChapterUrlsUI {
         }
 
         if (shouldOpen) {
-            let browser = ChapterUrlsUI.getChapterGroupBrowser();
             let activeCard = browser?.querySelector(`.chapterGroupCard[data-group-id="${groupId}"]`);
             if (activeCard != null) {
                 activeCard.open = true;
+                this.ensureChapterGroupCardRendered(activeCard);
             }
         }
 
@@ -1328,7 +1433,7 @@ class ChapterUrlsUI {
         let browserSection = ChapterUrlsUI.getChapterGroupBrowserSection();
         let browser = ChapterUrlsUI.getChapterGroupBrowser();
         let select = ChapterUrlsUI.getChapterGroupSelect();
-        if ((container == null) || (select == null) || (browserSection == null) || (browser == null)) {
+        if ((container == null) || (browserSection == null) || (browser == null)) {
             return;
         }
 
@@ -1352,12 +1457,14 @@ class ChapterUrlsUI {
         }
         this.visibleChapterGroups = resolvedGroups.groups;
 
-        util.removeElements([...select.options]);
-        this.visibleChapterGroups.forEach(group => {
-            let option = new Option(ChapterUrlsUI.describeGroup(group), group.id);
-            option.dataset.search = ChapterUrlsUI.groupSearchText(group);
-            select.add(option);
-        });
+        if (select != null) {
+            util.removeElements([...select.options]);
+            this.visibleChapterGroups.forEach(group => {
+                let option = new Option(ChapterUrlsUI.describeGroup(group), group.id);
+                option.dataset.search = ChapterUrlsUI.groupSearchText(group);
+                select.add(option);
+            });
+        }
 
         let showGroupedUi = (ChapterUrlsUI.getChapterGroupingMode() !== "flat")
             && (0 < this.visibleChapterGroups.length);
@@ -1367,13 +1474,9 @@ class ChapterUrlsUI {
         if (!showGroupedUi && (searchInput != null)) {
             searchInput.value = "";
         }
-        if (searchInput != null) {
-            if (this.visibleChapterGroups.length <= 1) {
-                searchInput.value = "";
-            }
-            searchInput.hidden = !showGroupedUi || (this.visibleChapterGroups.length <= 1);
+        if (select != null) {
+            select.hidden = !showGroupedUi || (this.visibleChapterGroups.length <= 1);
         }
-        select.hidden = !showGroupedUi || (this.visibleChapterGroups.length <= 1);
         let hintMessage = [referenceHint, showGroupedUi ? resolvedGroups.hint : ""]
             .filter(message => !util.isNullOrEmpty(message))
             .join(" ");
@@ -1392,7 +1495,10 @@ class ChapterUrlsUI {
         let selectedGroupId = ChapterUrlsUI.getSelectedChapterGroupId();
         let hasSelectedGroup = this.visibleChapterGroups.some(group => group.id === selectedGroupId);
         if (!hasSelectedGroup && (0 < this.visibleChapterGroups.length)) {
-            this.setCurrentChapterGroup(this.visibleChapterGroups[0].id, true);
+            this.setCurrentChapterGroup(
+                this.visibleChapterGroups[0].id,
+                !ChapterUrlsUI.shouldCollapseGroupsByDefault()
+            );
         } else {
             this.setCurrentChapterGroup(selectedGroupId, false);
         }
@@ -1401,12 +1507,9 @@ class ChapterUrlsUI {
 
     filterChapterGroups() {
         let select = ChapterUrlsUI.getChapterGroupSelect();
-        if (select == null) {
-            return;
-        }
         let query = ChapterUrlsUI.getChapterGroupSearchInput()?.value?.trim()?.toLowerCase() ?? "";
-        let options = [...select.options];
-        options.forEach(option => {
+        let options = [...(select?.options ?? [])];
+        options.forEach((option) => {
             let haystack = option.dataset.search ?? option.text.toLowerCase();
             option.hidden = (query !== "") && !haystack.includes(query);
         });
@@ -1418,16 +1521,31 @@ class ChapterUrlsUI {
             card.hidden = (query !== "") && !haystack.includes(query);
         });
 
-        let selectedOption = options[select.selectedIndex];
-        if ((selectedOption == null) || selectedOption.hidden) {
-            let nextVisible = options.find(option => !option.hidden);
-            if (nextVisible != null) {
-                select.value = nextVisible.value;
+        if (select != null) {
+            let selectedOption = options[select.selectedIndex];
+            if ((selectedOption == null) || selectedOption.hidden) {
+                let nextVisible = options.find(option => !option.hidden);
+                if (nextVisible != null) {
+                    select.value = nextVisible.value;
+                }
             }
         }
 
-        let hasVisibleOption = options.some(option => !option.hidden);
-        let visibleOptionCount = options.filter(option => !option.hidden).length;
+        let visibleCards = cards.filter(card => !card.hidden);
+        let visibleCardIds = visibleCards.map(card => card.dataset.groupId);
+        let hasVisibleOption = 0 < visibleCardIds.length;
+        let visibleOptionCount = visibleCardIds.length;
+        let activeGroupId = ChapterUrlsUI.getSelectedChapterGroupId();
+        if (!visibleCardIds.includes(activeGroupId)) {
+            let nextVisibleGroupId = visibleCardIds[0] ?? "";
+            if ((select != null) && (nextVisibleGroupId !== "")) {
+                select.value = nextVisibleGroupId;
+            }
+            if (browser != null) {
+                browser.dataset.activeGroupId = nextVisibleGroupId;
+            }
+        }
+
         ["selectAllChapterGroupsButton", "downloadAllChapterGroupsButton",
             "expandAllChapterGroupsButton", "collapseAllChapterGroupsButton"]
             .forEach((elementId) => {
@@ -1437,7 +1555,7 @@ class ChapterUrlsUI {
                 }
             });
         let markedGroupIds = new Set(this.getMarkedChapterGroupIds());
-        let hasVisibleMarkedOption = options.some(option => !option.hidden && markedGroupIds.has(option.value));
+        let hasVisibleMarkedOption = visibleCardIds.some(groupId => markedGroupIds.has(groupId));
         ["clearSelectedChapterGroupsButton", "downloadMarkedChapterGroupsButton"]
             .forEach((elementId) => {
                 let button = document.getElementById(elementId);
@@ -1445,7 +1563,9 @@ class ChapterUrlsUI {
                     button.disabled = !hasVisibleMarkedOption;
                 }
             });
-        select.disabled = !hasVisibleOption;
+        if (select != null) {
+            select.disabled = !hasVisibleOption;
+        }
         this.updateChapterGroupBrowserHeading(visibleOptionCount, query);
         this.updateChapterGroupEmptyState(hasVisibleOption, query);
         this.setCurrentChapterGroup(ChapterUrlsUI.getSelectedChapterGroupId(), false);
@@ -1676,17 +1796,31 @@ class ChapterUrlsUI {
     }
 
     static getSelectedChapterGroupId() {
-        return ChapterUrlsUI.getChapterGroupSelect()?.value ?? null;
+        let selectedValue = ChapterUrlsUI.getChapterGroupSelect()?.value;
+        if (!util.isNullOrEmpty(selectedValue)) {
+            return selectedValue;
+        }
+        let browser = ChapterUrlsUI.getChapterGroupBrowser();
+        let activeGroupId = browser?.dataset.activeGroupId ?? "";
+        if (!util.isNullOrEmpty(activeGroupId)) {
+            return activeGroupId;
+        }
+        return browser?.querySelector(".chapterGroupCard:not([hidden])")?.dataset.groupId ?? null;
     }
 
     static getVisibleChapterGroupIds() {
         let select = ChapterUrlsUI.getChapterGroupSelect();
-        if ((select == null) || (ChapterUrlsUI.getChapterGroupBrowserSection()?.hidden === true)) {
+        if (ChapterUrlsUI.getChapterGroupBrowserSection()?.hidden === true) {
             return [];
         }
-        return [...select.options]
-            .filter(option => !option.hidden)
-            .map(option => option.value);
+        if (select != null) {
+            return [...select.options]
+                .filter(option => !option.hidden)
+                .map(option => option.value);
+        }
+        let browser = ChapterUrlsUI.getChapterGroupBrowser();
+        return [...(browser?.querySelectorAll(".chapterGroupCard:not([hidden])") ?? [])]
+            .map(card => card.dataset.groupId);
     }
 
     static getChapterGroupingModeSelect() {

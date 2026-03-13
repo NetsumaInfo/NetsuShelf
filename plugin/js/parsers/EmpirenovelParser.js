@@ -6,6 +6,19 @@ class EmpirenovelParser extends Parser { // eslint-disable-line no-unused-vars
     constructor() {
         super();
         this.tocFetchBatchSize = 4;
+        this.titleFetchBatchSize = 8;
+        this.titleFetchDelayMs = 100;
+        this.titleEnrichmentRunId = 0;
+    }
+
+    async onLoadFirstPage(url, firstPageDom) {
+        await super.onLoadFirstPage(url, firstPageDom);
+        let runId = ++this.titleEnrichmentRunId;
+        this.enrichChapterTitlesInBackground(url, firstPageDom, runId).catch((error) => {
+            if (!util.isAbortError(error)) {
+                ErrorLog.log(error);
+            }
+        });
     }
 
     async getChapterUrls(dom, chapterUrlsUI) {
@@ -143,12 +156,88 @@ class EmpirenovelParser extends Parser { // eslint-disable-line no-unused-vars
     extractPartialChapterList(dom) {
         return [...dom.querySelectorAll("a.chapter_link")]
             .map((link) => {
-                link.querySelector(".small")?.remove();
+                let title = this.extractChapterTitleFromLink(link);
                 return ({
                     sourceUrl: link.href,
-                    title: link.innerText.trim(),
+                    title: title,
+                    chapterNumber: util.extractChapterNumber({title, sourceUrl: link.href})
                 });
             });
+    }
+
+    extractChapterTitleFromLink(link) {
+        let explicitTitle = [
+            link.getAttribute("data-title"),
+            link.title
+        ].find(title => !util.isNullOrEmpty(title?.trim()));
+        if (!util.isNullOrEmpty(explicitTitle)) {
+            return explicitTitle.trim();
+        }
+
+        let copy = link.cloneNode(true);
+        copy.querySelectorAll(".small").forEach(element => element.remove());
+        return copy.textContent.trim();
+    }
+
+    shouldEnrichChapterTitle(chapter, currentUrl) {
+        if ((chapter == null) || !this.isGenericChapterTitle(chapter.title)) {
+            return false;
+        }
+        if (util.isNullOrEmpty(currentUrl)) {
+            return true;
+        }
+        return util.normalizeUrlForCompare(chapter.sourceUrl) !== util.normalizeUrlForCompare(currentUrl);
+    }
+
+    async enrichChapterTitlesInBackground(url, firstPageDom, runId = this.titleEnrichmentRunId) {
+        let chapters = [...this.getPagesToFetch().values()];
+        if (chapters.length === 0) {
+            return;
+        }
+
+        let titlesUpdated = false;
+        let currentChapter = this.findChapterByUrl(url, chapters);
+        if ((currentChapter != null) && this.updateChapterTitleFromDom(currentChapter, firstPageDom)) {
+            titlesUpdated = true;
+        }
+
+        let chaptersToEnrich = chapters.filter(chapter => this.shouldEnrichChapterTitle(chapter, url));
+        for (let i = 0; i < chaptersToEnrich.length; i += this.titleFetchBatchSize) {
+            if ((runId !== this.titleEnrichmentRunId)
+                || (this.state.chapterListUrl !== url)
+                || util.sleepController.signal.aborted) {
+                return;
+            }
+
+            let batch = chaptersToEnrich.slice(i, i + this.titleFetchBatchSize);
+            let batchResults = await Promise.all(batch.map(async (chapter) => {
+                try {
+                    return {
+                        chapter: chapter,
+                        dom: (await HttpClient.wrapFetch(chapter.sourceUrl)).responseXML
+                    };
+                } catch {
+                    return {
+                        chapter: chapter,
+                        dom: null
+                    };
+                }
+            }));
+
+            batchResults.forEach(({ chapter, dom }) => {
+                if ((dom != null) && this.updateChapterTitleFromDom(chapter, dom)) {
+                    titlesUpdated = true;
+                }
+            });
+
+            if ((i + this.titleFetchBatchSize < chaptersToEnrich.length) && (0 < this.titleFetchDelayMs)) {
+                await util.sleep(this.titleFetchDelayMs);
+            }
+        }
+
+        if (titlesUpdated) {
+            this.refreshChapterGroupingUi();
+        }
     }
 
     shouldAutoExpandChapterList(url, firstPageDom, chapters = []) { // eslint-disable-line no-unused-vars
@@ -175,6 +264,20 @@ class EmpirenovelParser extends Parser { // eslint-disable-line no-unused-vars
 
     extractTitleImpl(dom) {
         return dom.querySelector("h1:not(.show_title)");
+    }
+
+    findChapterTitle(dom) {
+        if (!this.isChapterPageUrl(dom?.baseURI)) {
+            return null;
+        }
+        return dom.querySelector("#read-novel h3, #read-novel h4, h3, h4");
+    }
+
+    isChapterPageUrl(url) {
+        if (util.isNullOrEmpty(url) || !util.isUrl(url)) {
+            return false;
+        }
+        return /^https?:\/\/[^/]+\/novel\/[^/]+\/\d+\/?$/i.test(url);
     }
 
     findCoverImageUrl(dom) {

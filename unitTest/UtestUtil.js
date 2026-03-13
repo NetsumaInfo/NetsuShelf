@@ -176,6 +176,27 @@ test("extractHostName", function (assert) {
     assert.equal(hostName, "www.w3.org");
 });
 
+test("extractHttpUrlsFromText", function (assert) {
+    let text = [
+        "Primary: https://www.royalroad.com/fiction/21220/mother-of-learning,",
+        "duplicate https://www.royalroad.com/fiction/21220/mother-of-learning",
+        "secondary (https://example.com/story/1).",
+        "ignore ftp://example.com/file"
+    ].join(" ");
+    assert.deepEqual(util.extractHttpUrlsFromText(text), [
+        "https://www.royalroad.com/fiction/21220/mother-of-learning",
+        "https://example.com/story/1"
+    ]);
+});
+
+test("extractChapterNumber prefers explicit chapterNumber", function (assert) {
+    assert.equal(util.extractChapterNumber({
+        title: "Archive Index of Documented Fauna",
+        sourceUrl: "https://www.royalroad.com/fiction/145957/the-enchanted-beastiary/chapter/1/archive-index",
+        chapterNumber: 1
+    }), 1);
+});
+
 test("removeTrailingWhiteSpace", function (assert) {
     let dom = TestUtils.makeDomWithBody(
         "<div id=\"content\">" +

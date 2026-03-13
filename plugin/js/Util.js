@@ -714,6 +714,10 @@ const util = (function() {
         if (chapter == null) {
             return null;
         }
+        let explicitChapterNumber = Number(chapter.chapterNumber);
+        if (Number.isFinite(explicitChapterNumber)) {
+            return explicitChapterNumber;
+        }
         return extractChapterNumberFromText(chapter.title)
             ?? extractChapterNumberFromText(chapter.sourceUrl);
     }
@@ -1202,6 +1206,25 @@ const util = (function() {
         } catch (e) {
             return false;
         }
+    }
+
+    function extractHttpUrlsFromText(text) {
+        if (isNullOrEmpty(text)) {
+            return [];
+        }
+
+        let found = [];
+        let seen = new Set();
+        let matches = text.match(/https?:\/\/[^\s<>"']+/gi) ?? [];
+        matches.forEach((match) => {
+            let candidate = match.replace(/[),.;!?]+$/g, "");
+            if (!isUrl(candidate) || seen.has(candidate)) {
+                return;
+            }
+            seen.add(candidate);
+            found.push(candidate);
+        });
+        return found;
     }
 
     function xmlToString(dom) {
@@ -1730,6 +1753,7 @@ const util = (function() {
         isElementWhiteSpace: isElementWhiteSpace,
         isHeaderTag: isHeaderTag,
         isUrl: isUrl,
+        extractHttpUrlsFromText: extractHttpUrlsFromText,
         isTextAreaField: isTextAreaField,
         isTextInputField: isTextInputField,
         isXhtmlInvalid: isXhtmlInvalid,

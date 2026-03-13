@@ -225,6 +225,63 @@ class Parser {
         return null;
     }
 
+    extractChapterTitleText(dom, webPage) {
+        let title = this.findChapterTitle(dom, webPage);
+        if (title == null) {
+            return null;
+        }
+        if (title.textContent !== undefined) {
+            title = title.textContent;
+        }
+        title = title?.replace(/\s+/g, " ").trim() ?? "";
+        return util.isNullOrEmpty(title) ? null : title;
+    }
+
+    isPlaceholderChapterTitle(title) {
+        return (title ?? "").trim() === "[placeholder]";
+    }
+
+    isGenericChapterTitle(title) {
+        let normalizedTitle = (title ?? "").replace(/\s+/g, " ").trim();
+        if (util.isNullOrEmpty(normalizedTitle)) {
+            return true;
+        }
+
+        return /^(?:chapter|chapitre|ch|ep|episode)\s*[#:–—\-.\s]*\d+(?:\.\d+)?$/i.test(normalizedTitle)
+            || /^#?\d+(?:\.\d+)?$/.test(normalizedTitle)
+            || /^\d+(?:\.\d+)?[.)-]?$/.test(normalizedTitle);
+    }
+
+    shouldPreferChapterPageTitle(existingTitle, chapterTitle, webPage) { // eslint-disable-line no-unused-vars
+        let normalizedExistingTitle = (existingTitle ?? "").replace(/\s+/g, " ").trim();
+        let normalizedChapterTitle = (chapterTitle ?? "").replace(/\s+/g, " ").trim();
+
+        if (util.isNullOrEmpty(normalizedChapterTitle) || (normalizedExistingTitle === normalizedChapterTitle)) {
+            return false;
+        }
+        if (util.isNullOrEmpty(normalizedExistingTitle) || this.isPlaceholderChapterTitle(normalizedExistingTitle)) {
+            return true;
+        }
+
+        return this.isGenericChapterTitle(normalizedExistingTitle)
+            && (normalizedExistingTitle.length < normalizedChapterTitle.length);
+    }
+
+    updateChapterTitleFromDom(webPage, dom) {
+        if ((webPage == null) || (dom == null)) {
+            return false;
+        }
+
+        let chapterTitle = this.extractChapterTitleText(dom, webPage);
+        if (!this.shouldPreferChapterPageTitle(webPage.title, chapterTitle, webPage)) {
+            return false;
+        }
+
+        webPage.title = chapterTitle;
+        ChapterUrlsUI.refreshChapterTitle(webPage);
+        return true;
+    }
+
     replaceWpBlockSpacersWithHR(content) {
         [...content.querySelectorAll("div.wp-block-spacer")].forEach(
             e => e.replaceWith(content.ownerDocument.createElement("hr"))
@@ -524,6 +581,7 @@ class Parser {
             chapters?.forEach(chapter => chapter.title = chapter.title?.trim());
             await this.tryDeselectOldChapters(url, chapters);
             this.preselectCurrentChapter(url, firstPageDom, chapters);
+            this.updateChapterTitleFromDom(this.findChapterByUrl(url, chapters), firstPageDom);
             this.state.setPagesToFetch(chapters);
             chapterUrlsUI.populateChapterUrlsTable(chapters);
             let currentChapter = this.findChapterByUrl(url, chapters);
@@ -607,6 +665,9 @@ class Parser {
         }
         let currentChapter = this.findChapterByUrl(url, chapters);
         if (currentChapter == null) {
+            if (3 < chapters.length) {
+                return false;
+            }
             return this.findAdjacentChapterUrls(firstPageDom, url).length !== 0;
         }
         return chapters.length <= 3;
@@ -869,6 +930,7 @@ class Parser {
             delete webPage.error;
             webPage.rawDom = webPageDom;
             pageParser.preprocessRawDom(webPageDom);
+            pageParser.updateChapterTitleFromDom(webPage, webPageDom);
             pageParser.removeUnusedElementsToReduceMemoryConsumption(webPageDom);
             let content = pageParser.findContent(webPage.rawDom);
             if (content == null) {

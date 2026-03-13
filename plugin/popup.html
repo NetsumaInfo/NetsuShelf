@@ -575,8 +575,12 @@
                                         <select id="selectRangeStartChapter"></select>
                                     </div>
                                 </td>
-                                <td><input id="showChapterUrlsCheckbox" type="checkbox" name="showChapterUrlsCheckbox" value="false"></td>
-                                <td>__MSG_label_Show_Chapter_Urls__</td>
+                                <td class="chapterRangeToggleCell" colspan="2" rowspan="2">
+                                    <label class="chapterRangeToggle" for="showChapterUrlsCheckbox">
+                                        <input id="showChapterUrlsCheckbox" type="checkbox" name="showChapterUrlsCheckbox" value="false">
+                                        <span class="i18n">__MSG_label_Show_Chapter_Urls__</span>
+                                    </label>
+                                </td>
                             </tr>
                             <tr id="rangeEndChapterRow">
                                 <td>__MSG_label_Range_End_Chapter__</td>
@@ -595,18 +599,15 @@
                                         <select id="selectRangeEndChapter"></select>
                                     </div>
                                 </td>
-                                <td colspan="2">&nbsp;</td>
                             </tr>
                             <tr id="rangeChapterCountRow">
                                 <td>__MSG_label_Chapter_Count__</td>
-                                <td colspan="3">
-                                    <table width="100%">
-                                        <tr>
-                                            <td width="30%"><span id="spanChapterCount" />0</td>
-                                            <td width="50%"><span id="spanParserName" /></td>
-                                            <td width="20%"><span id="spanDelayMs" />0 ms</td>
-                                        </tr>
-                                    </table>
+                                <td colspan="3" class="chapterRangeMetaCell">
+                                    <div class="chapterRangeMeta">
+                                        <span id="spanChapterCount" class="chapterRangeMetaCount">0</span>
+                                        <span id="spanParserName" class="chapterRangeMetaParser"></span>
+                                        <span id="spanDelayMs" class="chapterRangeMetaDelay">0 ms</span>
+                                    </div>
                                 </td>
                             </tr>
                             </table>
@@ -696,6 +697,10 @@
                                     <input type="checkbox" data-reference-host="baka-tsuki.org" checked="checked" />
                                     <span>Baka-Tsuki</span>
                                 </label>
+                                <label class="referenceSiteChip">
+                                    <input type="checkbox" data-reference-host="royalroad.com" checked="checked" />
+                                    <span>Royal Road</span>
+                                </label>
                             </div>
                             <div class="referenceGroupingSourceSelectWrap">
                                 <label for="referenceGroupingSourceSelect">Loaded groups</label>
@@ -736,25 +741,20 @@
                             <div class="chapterGroupBrowserHeader">
                                 <div class="chapterGroupBrowserIntro">
                                     <strong id="chapterGroupBrowserTitle">Detected groups</strong>
-                                    <p id="chapterGroupSummary">Select one or more groups, then download the selection or everything.</p>
+                                    <span id="chapterGroupSummary" class="chapterGroupSummary">Select one or more groups, then download the selection or everything.</span>
                                 </div>
-                                <div class="chapterGroupBrowserHeaderActions">
-                                    <button id="expandAllChapterGroupsButton" type="button">Expand All</button>
-                                    <button id="collapseAllChapterGroupsButton" type="button">Collapse All</button>
+                                <div class="chapterGroupBrowserControls">
+                                    <div id="groupPackControls" class="chapterGroupToolbar" hidden="true">
+                                        <button id="selectAllChapterGroupsButton" type="button">Select all</button>
+                                        <button id="clearSelectedChapterGroupsButton" type="button">Deselect all</button>
+                                        <button id="downloadMarkedChapterGroupsButton" type="button">Download selected</button>
+                                        <button id="downloadAllChapterGroupsButton" type="button">Download all</button>
+                                    </div>
+                                    <div class="chapterGroupBrowserHeaderActions">
+                                        <button id="expandAllChapterGroupsButton" type="button">Expand All</button>
+                                        <button id="collapseAllChapterGroupsButton" type="button">Collapse All</button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div id="groupPackControls" class="chapterGroupToolbar" hidden="true">
-                                <input
-                                    id="chapterGroupSearchInput"
-                                    type="text"
-                                    placeholder="Filter groups, sections, or ranges"
-                                    aria-label="Filter groups"
-                                />
-                                <select id="chapterGroupSelect" aria-label="Current group"></select>
-                                <button id="selectAllChapterGroupsButton" type="button">Select all</button>
-                                <button id="clearSelectedChapterGroupsButton" type="button">Deselect all</button>
-                                <button id="downloadMarkedChapterGroupsButton" type="button">Download selected</button>
-                                <button id="downloadAllChapterGroupsButton" type="button">Download all</button>
                             </div>
                             <div id="chapterGroupEmptyState" class="chapterGroupEmptyState" hidden="true"></div>
                             <div id="chapterGroupBrowser" class="chapterGroupBrowser"></div>

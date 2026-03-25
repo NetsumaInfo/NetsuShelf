@@ -1,6 +1,6 @@
 # NetsuShelf
 
-NetsuShelf is a browser extension for Chrome and Firefox that converts supported web novels and story pages into offline reading files.
+NetsuShelf is a browser extension for [Chrome](https://chromewebstore.google.com/detail/bhnlehpkdcmjmekehjdpcdclggmogidc?utm_source=item-share-cb) and [Firefox](https://addons.mozilla.org/fr/firefox/addon/netsushelf/) that converts supported web novels and story pages into offline reading files.
 
 It is a maintained fork of WebToEpub, with NetsuShelf-specific packaging, branding, UI updates, and store submission work.
 
